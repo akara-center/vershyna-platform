@@ -247,7 +247,7 @@ function transferEditor(sourceId) {
       if (persistenceBlocked) throw Error(startupError);
       const next = Q.transfer(state, sourceId, selection.mid, selection.pid);
       writeBackup("-before-transfer", JSON.stringify(state));
-      localStorage.setItem(KEY, JSON.stringify(next));
+      persistTracker(next);
       state = next;
       resetTimer();
       $("#modal").close();

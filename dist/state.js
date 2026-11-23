@@ -1,7 +1,7 @@
 "use strict";
 // Shared state, selectors, persistence and dated backups. Initialization runs from app.js.
 
-const KEY = "vershyna-platform-v1",
+const KEY = "vershyna-platform-v1" + (globalThis.Workspace?.keySuffix || ""),
   Q = QuestCore;
 
 const $ = (s) => document.querySelector(s),
@@ -23,6 +23,7 @@ let persistenceBlocked = false;
 let startupError = "";
 
 const BACKUP_LABELS = [
+  ["-before-sync-resolution", "Копія перед вибором версії синхронізації"],
   ["-before-coach-import", "Копія перед додаванням пакета коуча"],
   ["-before-github", "Копія перед перенесенням на GitHub"],
   ["-before-import", "Копія перед останнім імпортом"],
@@ -85,13 +86,18 @@ function resetMigrationBackups(raw) {
   }
 }
 
+function persistTracker(value) {
+  if (globalThis.Workspace) Workspace.save(value);
+  else localStorage.setItem(KEY, JSON.stringify(value));
+}
+
 function save() {
   if (persistenceBlocked) {
     toast(startupError);
     return false;
   }
   try {
-    localStorage.setItem(KEY, JSON.stringify(state));
+    persistTracker(state);
     return true;
   } catch {
     toast("Не вдалося зберегти. Експортуй прогрес через «Дані».");
@@ -120,9 +126,9 @@ function totalXP() {
 
 function initializeState() {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = globalThis.Workspace ? Workspace.initialTracker() : localStorage.getItem(KEY);
     state = raw ? JSON.parse(raw) : structuredClone(initial);
-    if (!raw && document.getElementById?.("pilot-nav")) {
+    if (!raw && !globalThis.Workspace && document.getElementById?.("pilot-nav")) {
       state.missions = [structuredClone(demoMission)];
       state.active = demoMissionId;
       state.pilot = Pilot.empty();
@@ -131,7 +137,7 @@ function initializeState() {
     Pilot.validate(state.pilot);
     Q.validate(state);
     state = Q.pruneTrash(Q.normalize(migrateState(state)));
-    if (raw) {
+    if (raw && !globalThis.Workspace) {
       try {
         resetMigrationBackups(raw);
       } catch {
@@ -141,6 +147,13 @@ function initializeState() {
     }
     if (!state.missions.some((m) => m.id === state.active))
       state.active = state.missions[0]?.id || null;
+    if (globalThis.Workspace) {
+      if (Workspace.storageError) {
+        persistenceBlocked = true;
+        startupError = "Чернетка недоступна. Трекер відкрито для перегляду.";
+      }
+      return;
+    }
     try {
       if (!raw) {
         // A fresh profile has no legacy backups to reset on its next visit.
