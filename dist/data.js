@@ -169,9 +169,9 @@ function prepareImport(text) {
     });
     $("#confirmImport").onclick = () => {
       try {
-        const current = localStorage.getItem(KEY);
+        const current = globalThis.Workspace ? JSON.stringify(state) : localStorage.getItem(KEY);
         if (current) writeBackup("-before-import", current);
-        localStorage.setItem(KEY, JSON.stringify(imported));
+        persistTracker(imported);
       } catch {
         showImportError(
           "Браузер не дозволив зберегти дані. Поточний прогрес не замінено. Звільни місце або відкрий застосунок у звичайному браузері.",

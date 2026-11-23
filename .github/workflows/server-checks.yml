@@ -1,0 +1,30 @@
+name: Server checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test-server:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/check-syntax.cjs
+      - run: node --test tests/*.test.cjs
+      - run: npm install --prefix "$RUNNER_TEMP/vershyna-browser" --no-package-lock playwright@1.56.1
+      - name: Run browser scenarios
+        run: |
+          export VERSHYNA_PLAYWRIGHT="$RUNNER_TEMP/vershyna-browser/node_modules/playwright"
+          if command -v google-chrome >/dev/null; then
+            export VERSHYNA_CHROMIUM="$(command -v google-chrome)"
+          else
+            "$VERSHYNA_PLAYWRIGHT/cli.js" install --with-deps chromium
+          fi
+          node scripts/check-browser.cjs

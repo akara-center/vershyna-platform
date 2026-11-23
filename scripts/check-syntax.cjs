@@ -2,8 +2,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const root = path.resolve(__dirname, "..");
-const files = fs.readdirSync(path.join(root, "dist")).filter(name => name.endsWith(".js"));
-for (const name of files) {
-  execFileSync(process.execPath, ["--check", path.join(root, "dist", name)], {stdio:"inherit"});
+let checked = 0;
+for (const directory of ["dist", "server"]) {
+  for (const name of fs.readdirSync(path.join(root, directory))) {
+    if (!/\.[cm]?js$/.test(name)) continue;
+    execFileSync(process.execPath, ["--check", path.join(root, directory, name)], { stdio: "inherit" });
+    checked++;
+  }
 }
-console.log(`Syntax passed for ${files.length} JavaScript files.`);
+console.log(`Syntax passed for ${checked} JavaScript files.`);

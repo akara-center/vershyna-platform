@@ -12,9 +12,27 @@ const Pilot = (() => {
   const validVision = (value) => value && typeof value === "object" &&
     !Array.isArray(value) && Object.keys(value).every((key) => visionFields.includes(key) && text(value[key]));
 
+  const graphicLimits = { avatar: 384 * 1024, infographic: 768 * 1024 };
+
+  function validGraphic(key, data) {
+    if (!Object.hasOwn(graphicLimits, key) || typeof data !== "string") return false;
+    const match = /^data:image\/(png|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(data);
+    if (!match || match[2].length % 4) return false;
+    const bytes = match[2].length / 4 * 3 - (match[2].endsWith("==") ? 2 : match[2].endsWith("=") ? 1 : 0);
+    if (bytes > graphicLimits[key]) return false;
+    const header = atob(match[2].slice(0, 16));
+    if (match[1] === "png") return header.startsWith("\x89PNG\r\n\x1a\n");
+    return header.startsWith("RIFF") && header.slice(8, 12) === "WEBP";
+  }
+
+  function validGraphics(value) {
+    return value === undefined || (value && typeof value === "object" && !Array.isArray(value) &&
+      Object.entries(value).every(([key, data]) => validGraphic(key, data)));
+  }
+
   function validate(value) {
     if (value === undefined) return;
-    if (!value || value.version !== 1 || !validVision(value.vision) ||
+    if (!value || value.version !== 1 || !validVision(value.vision) || !validGraphics(value.graphics) ||
         !Route.valid(value.goals) || !CoachPackage.validImports(value.coachImports) || !CoachPackage.validSettings(value.coachSettings) ||
         (value.relevance !== undefined && (!Array.isArray(value.relevance) ||
           !value.relevance.every((row) => row && text(row.id) && text(row.name) &&
@@ -97,5 +115,5 @@ const Pilot = (() => {
     ].filter(Boolean).join("\n\n");
   }
 
-  return { empty, validate, visionFields, kyivDate, periodStart, actions, recordCompletion, results, report };
+  return { empty, validate, visionFields, validGraphic, graphicLimits, kyivDate, periodStart, actions, recordCompletion, results, report };
 })();

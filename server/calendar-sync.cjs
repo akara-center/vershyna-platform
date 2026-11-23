@@ -67,6 +67,12 @@ function googleCalendar({ accessToken, calendarId, fetch: request = globalThis.f
   const eventUrl = (id) => root + "/" + encodeURIComponent(id);
   return {
     get: (id) => send(eventUrl(id), "GET"),
+    changes: ({ pageToken, syncToken }) => {
+      const params = new URLSearchParams({ showDeleted: "true", fields: "items(id,status),nextPageToken,nextSyncToken" });
+      if (pageToken) params.set("pageToken", pageToken);
+      if (syncToken) params.set("syncToken", syncToken);
+      return send(root + "?" + params, "GET");
+    },
     create: (id, value) => {
       if (!/^[0-9a-v]{5,1024}$/.test(id)) throw Error("Некоректний ідентифікатор події.");
       return send(root, "POST", { id, ...body(value) });
@@ -78,8 +84,9 @@ function googleCalendar({ accessToken, calendarId, fetch: request = globalThis.f
   };
 }
 
-async function reconcile(calendar, { eventId, base, tracker, choices }) {
+async function reconcile(calendar, { eventId, base, tracker, choices, cancelled }) {
   let event;
+  if (cancelled) return merge(base, tracker, null, choices);
   try {
     event = await calendar.get(eventId);
   } catch (error) {

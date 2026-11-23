@@ -3,22 +3,40 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const http = require("node:http");
-const { openWorkspaces, provision, workspaceApi } = require("./workspaces.cjs");
+const { openWorkspaces, provision, workspaceApi, activeAccount, snapshot, configureCoach } = require("./workspaces.cjs");
+
+const { setupCalendar } = require("./calendar-account.cjs");
 
 const dist = path.resolve(__dirname, "../dist");
 const mime = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8", ".json": "application/json", ".png": "image/png",
   ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
 
-function createServer(db, origin) {
-  const api = workspaceApi(db, origin);
-  return http.createServer((req, res) => {
+function createServer(db, origin, calendarOptions) {
+  const coach = configureCoach(db);
+  const calendar = setupCalendar(db, origin, calendarOptions, coach);
+  const api = workspaceApi(db, origin, calendar.api, coach);
+  const server = http.createServer({ requestTimeout: 20000 }, (req, res) => {
     const pathname = new URL(req.url, "http://localhost").pathname;
+    if (pathname === "/healthz" && req.method === "GET") return void res.writeHead(200, { "Cache-Control": "no-store" }).end("ok");
     if (pathname.startsWith("/api/")) return void api(req, res, pathname);
     if (req.method !== "GET" && req.method !== "HEAD") return void res.writeHead(405).end();
-    const accountFiles = { "/account": "account.html", "/account.js": "account.js" };
+    if (pathname === "/" || pathname === "/index.html") return void res.writeHead(302, { Location: "/tracker" }).end();
+    if (pathname === "/tracker") {
+      const account = activeAccount(db, req);
+      if (!account || coach.suspended(account.id)) return void res.writeHead(302, { Location: "/account", "Cache-Control": "no-store" }).end();
+      if (coach.role(account.id) === "coach") return void res.writeHead(302, { Location: "/coach", "Cache-Control": "no-store" }).end();
+      const data = JSON.stringify(snapshot(account)).replace(/</g, "\\u003c");
+      const html = fs.readFileSync(path.join(dist, "index.html"), "utf8")
+        .replace('<script src="./state.js?', () => `<script type="application/json" id="workspace-data">${data}</script><script src="/workspace.js"></script><script src="./state.js?`)
+        .replace('<a href="./collaboration.html">Демо кабінету коуча</a>', '<a href="/coach">Спільний трекер</a> <a href="/account">Мій акаунт</a>')
+        .replace('<nav id="pilot-nav"', '<div class="workspace-status pilot-actions"><a href="/account">Мій акаунт</a><span id="workspace-status" role="status"></span><button type="button" id="workspace-review" hidden>Звірити зміни</button></div><nav id="pilot-nav"');
+      res.writeHead(200, { "Content-Type": mime[".html"], "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" });
+      return void res.end(req.method === "GET" ? html : undefined);
+    }
+    const accountFiles = { "/account": "account.html", "/account.js": "account.js", "/workspace.js": "workspace.js", "/coach": "coach.html", "/coach.js": "coach.js" };
     const accountFile = Object.hasOwn(accountFiles, pathname) && accountFiles[pathname];
-    const name = pathname === "/" ? "index.html" : pathname.slice(1);
+    const name = pathname.slice(1);
     if (!accountFile && !/^[a-zA-Z0-9_-]+\.[a-z]+$/.test(name)) return void res.writeHead(404).end();
     const file = accountFile ? path.join(__dirname, accountFile) : path.join(dist, name);
     const type = mime[path.extname(file)];
@@ -27,19 +45,41 @@ function createServer(db, origin) {
     if (req.method === "HEAD") return void res.end();
     fs.createReadStream(file).on("error", () => res.destroy()).pipe(res);
   });
+  if (calendar.enabled) {
+    let syncing = false;
+    const timer = setInterval(async () => {
+      if (syncing) return;
+      syncing = true;
+      try { await calendar.background(); }
+      catch { console.warn("Не вдалося виконати фонову звірку Google Calendar."); }
+      finally { syncing = false; }
+    }, 60000);
+    timer.unref();
+    server.once("close", () => clearInterval(timer));
+  }
+  return server;
 }
 
 if (require.main === module) {
+  process.umask(0o077);
   const dbPath = process.env.VERSHYNA_DB || path.resolve("var/vershyna.sqlite");
   if (dbPath !== ":memory:") fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = openWorkspaces(dbPath);
-  if (process.argv[2] === "provision") {
-    console.log(provision(db, process.argv[3] || ""));
+  if (process.argv[2] === "backup") {
+    const destination = process.argv[3];
+    if (!destination || fs.existsSync(destination)) throw Error("Вкажи шлях до нового файлу резервної копії.");
+    db.prepare("VACUUM INTO ?").run(path.resolve(destination));
+    db.close();
+  } else if (["provision", "rotate-key"].includes(process.argv[2])) {
+    console.log(provision(db, process.argv[3] || "", process.argv[4], process.argv[2] === "rotate-key"));
     db.close();
   } else {
-    const port = Number(process.env.VERSHYNA_PORT || 8787);
+    const port = Number(process.env.VERSHYNA_PORT || process.env.PORT || 8787);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw Error("Некоректний порт.");
     const origin = new URL(process.env.VERSHYNA_ORIGIN || `http://127.0.0.1:${port}`).origin;
-    createServer(db, origin).listen(port, "127.0.0.1", () => console.log(`Вершина: ${origin}/account`));
+    const calendarOptions = { clientId: process.env.VERSHYNA_GOOGLE_CLIENT_ID,
+      clientSecret: process.env.VERSHYNA_GOOGLE_CLIENT_SECRET, encryptionKey: process.env.VERSHYNA_GOOGLE_TOKEN_KEY };
+    createServer(db, origin, calendarOptions).listen(port, process.env.VERSHYNA_HOST || "127.0.0.1", () => console.log(`Вершина: ${origin}/account`));
   }
 }
 

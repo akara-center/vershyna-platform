@@ -5,6 +5,7 @@ const login = $("login");
 const upload = $("upload");
 const status = $("status");
 let workspace;
+let profile;
 let busy = false;
 
 async function api(path, method = "GET", data) {
@@ -20,8 +21,12 @@ async function api(path, method = "GET", data) {
 }
 
 function render() {
-  login.hidden = Boolean(workspace);
+  login.hidden = Boolean(workspace || profile?.suspended);
+  $("tracker-link").hidden = !workspace;
+  $("blocked-logout").hidden = !profile?.suspended;
+  $("coach-link").textContent = profile?.role === "coach" ? "Кабінет коуча" : "Співпраця з коучем";
   $("workspace").hidden = !workspace;
+  if (!workspace) $("calendar-account").hidden = true;
   $("account-info").textContent = workspace
     ? `Акаунт: ${workspace.account}. ${workspace.revision ? "Версія копії " + workspace.revision + "." : "Копій поки немає."}`
     : "";
@@ -30,12 +35,25 @@ function render() {
 
 async function refresh() {
   try {
-    workspace = await api("/api/workspace");
+    profile = await api("/api/coach/profile");
+    workspace = profile.suspended ? undefined : await api("/api/workspace");
+    if (profile.suspended) status.textContent = "Доступ до трекерів призупинено.";
   } catch (error) {
     if (error.status !== 401) throw error;
     workspace = undefined;
+    profile = undefined;
   }
   render();
+  $("calendar-account").hidden = !workspace;
+  if (workspace) {
+    const calendar = await api("/api/calendar/status");
+    $("calendar-account").hidden = !calendar.enabled;
+    $("calendar-connect").hidden = calendar.connected;
+    $("calendar-disconnect").hidden = !calendar.connected;
+    $("calendar-info").textContent = calendar.connected ? "Календар під’єднано." : "Календар ще не під’єднано.";
+    if (["cancelled", "error"].includes(new URLSearchParams(location.search).get("google")))
+      $("calendar-info").textContent = "Під’єднання не завершилося. Спробуй ще раз.";
+  }
 }
 
 async function act(task) {
@@ -63,11 +81,13 @@ login.onsubmit = (event) => {
     login.reset();
     await api("/api/session", "POST", { key });
     await refresh();
+    if (!profile?.suspended) location.assign(profile?.role === "coach" ? "/coach" : "/tracker");
   });
 };
-$("logout").onclick = () => void act(async () => {
+$("logout").onclick = $("blocked-logout").onclick = () => void act(async () => {
   await api("/api/session", "DELETE");
   workspace = undefined;
+  profile = undefined;
   upload.reset();
 });
 $("reload").onclick = () => void act(refresh);
@@ -83,13 +103,21 @@ upload.onsubmit = (event) => {
   event.preventDefault();
   void act(async () => {
     const file = new FormData(upload).get("file");
-    if (file.size > 4 * 1024 * 1024 - 128) throw Error("Файл перевищує допустимий розмір.");
+    if (file.size > 8 * 1024 * 1024) throw Error("Файл перевищує допустимий розмір.");
     const tracker = JSON.parse((await file.text()).replace(/^\uFEFF/, ""));
     if (workspace.revision && !window.confirm("Замінити поточну серверну копію цією версією?")) return;
-    await api("/api/workspace", "PUT", { revision: workspace.revision, tracker });
+    await api("/api/workspace", "PUT", { revision: workspace.revision, tracker, account: workspace.account });
     await refresh();
     upload.reset();
     status.textContent = "Копію збережено.";
   });
 };
 void act(refresh);
+$("calendar-connect").onclick = () => void act(async () => {
+  location.assign((await api("/api/calendar/connect", "POST")).url);
+});
+$("calendar-disconnect").onclick = () => void act(async () => {
+  if (!confirm("Від’єднати календар? Події залишаться в Google Calendar.")) return;
+  await api("/api/calendar/connect", "DELETE");
+  await refresh();
+});

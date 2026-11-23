@@ -1,15 +1,22 @@
 "use strict";
 
-const { createHash, randomBytes } = require("node:crypto");
+const { createHash, randomBytes, randomUUID } = require("node:crypto");
 const { DatabaseSync } = require("node:sqlite");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { setUpCoach } = require("./coach.cjs");
 
 require("../dist/quest-core.js");
-const validatePilot = vm.runInNewContext(
+const { validatePilot, applyPackage, reviseRoute, visionLabels } = vm.runInNewContext(
   ["route.js", "coach-package.js", "pilot-core.js"].map((name) =>
-    fs.readFileSync(path.join(__dirname, "../dist", name), "utf8")).join("\n") + "\nPilot.validate",
+    fs.readFileSync(path.join(__dirname, "../dist", name), "utf8")).join("\n") + `
+({
+    validatePilot: Pilot.validate,
+    visionLabels: Route.visionLabels,
+    reviseRoute: (previous, updated, at, missions) => Route.revise(previous, updated.vision, Route.goals(updated), at, missions),
+    applyPackage: (tracker, packet, uid, at) => CoachPackage.draft(tracker, CoachPackage.parse(packet), uid, at),
+  })`, { TextEncoder, structuredClone, QuestCore, atob },
 );
 
 function validateTracker(value) {
@@ -18,10 +25,17 @@ function validateTracker(value) {
   validatePilot(value.pilot);
 }
 
+function configureCoach(db) {
+  return setUpCoach(db, {
+    validateTracker, visionLabels, reviseRoute,
+    applyPackage: (tracker, packet) => applyPackage(tracker, packet, randomUUID, new Date().toISOString()),
+  });
+}
+
 const token = () => randomBytes(32).toString("base64url");
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const sessionLifetime = 7 * 86400;
-const maxBytes = 4 * 1024 * 1024;
+const maxBytes = 8 * 1024 * 1024 + 1024;
 
 function openWorkspaces(dbPath) {
   const db = new DatabaseSync(dbPath);
@@ -34,13 +48,25 @@ function openWorkspaces(dbPath) {
       digest TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES workspace_accounts(id),
       expires INTEGER NOT NULL
     );`);
+  configureCoach(db);
   return db;
 }
 
-function provision(db, id) {
+function provision(db, id, role = "client", rotate = false) {
   if (!/^[a-zA-Z0-9_-]{1,80}$/.test(id)) throw Error("Ідентифікатор акаунта має бути від 1 до 80 символів A–Z, 0–9, _ або -.");
+  if (!["client", "coach"].includes(role)) throw Error("Роль має бути client або coach.");
   const key = token();
-  db.prepare("INSERT INTO workspace_accounts (id, key_digest) VALUES (?, ?)").run(id, hash(key));
+  const coach = configureCoach(db);
+  coach.transaction(() => {
+    if (rotate) {
+      if (!db.prepare("UPDATE workspace_accounts SET key_digest = ? WHERE id = ?").run(hash(key), id).changes)
+        throw Error("Акаунта немає.");
+      db.prepare("DELETE FROM workspace_sessions WHERE account_id = ?").run(id);
+    } else {
+      db.prepare("INSERT INTO workspace_accounts (id, key_digest) VALUES (?, ?)").run(id, hash(key));
+      if (role === "coach") db.prepare("INSERT INTO coach_roles VALUES (?)").run(id);
+    }
+  });
   return key;
 }
 
@@ -55,19 +81,35 @@ async function readJson(req) {
   let size = 0;
   for await (const chunk of req.iterator({ destroyOnReturn: false })) {
     size += chunk.length;
-    if (size > maxBytes) throw Object.assign(Error("Файл перевищує 4 МБ."), { status: 413 });
+    if (size > maxBytes) throw Object.assign(Error("Дані перевищують 8 МБ."), { status: 413 });
     chunks.push(chunk);
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-function workspaceApi(db, origin) {
-  const cookie = (value, maxAge) => `vershyna_session=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${origin.startsWith("https:") ? "; Secure" : ""}`;
+function activeAccount(db, req) {
+  const digest = sessionDigest(req);
+  return db.prepare(`SELECT a.id, a.tracker, a.revision FROM workspace_accounts a
+    JOIN workspace_sessions s ON a.id = s.account_id WHERE s.digest = ? AND s.expires > ?`)
+    .get(digest, Math.floor(Date.now() / 1000));
+}
+
+function sessionDigest(req) {
+  return hash(/(?:^|;\s*)vershyna_session=([A-Za-z0-9_-]{43})(?:;|$)/.exec(req.headers.cookie || "")?.[1] || "");
+}
+
+function snapshot(account) {
+  return { account: account.id, revision: account.revision,
+    tracker: account.tracker ? JSON.parse(account.tracker) : null };
+}
+
+function workspaceApi(db, origin, calendar, coach = configureCoach(db)) {
+  const cookie = (value, maxAge) => `vershyna_session=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${origin.startsWith("https:") ? "; Secure" : ""}`;
   return async (req, res, pathname) => {
     const method = req.method;
     try {
       if (method !== "GET" && req.headers.origin !== origin) return json(res, 403, { error: "Неприпустимий запит." });
-      const digest = hash(/(?:^|;\s*)vershyna_session=([A-Za-z0-9_-]{43})(?:;|$)/.exec(req.headers.cookie || "")?.[1] || "");
+      const digest = sessionDigest(req);
       const now = Math.floor(Date.now() / 1000);
       if (pathname === "/api/session" && method === "POST") {
         const payload = await readJson(req);
@@ -84,15 +126,21 @@ function workspaceApi(db, origin) {
         db.prepare("DELETE FROM workspace_sessions WHERE digest = ?").run(digest);
         return json(res, 200, {}, { "Set-Cookie": cookie("", 0) });
       }
-      const account = db.prepare(`SELECT a.id, a.tracker, a.revision FROM workspace_accounts a
-        JOIN workspace_sessions s ON a.id = s.account_id WHERE s.digest = ? AND s.expires > ?`).get(digest, now);
-      if (!account) return json(res, 401, { error: "Увійди до акаунта Вершини." });
+      const account = activeAccount(db, req);
+      if (!account || (req.headers["x-vershyna-account"] && req.headers["x-vershyna-account"] !== account.id))
+        return json(res, 401, { error: "Увійди до потрібного акаунта Вершини." });
+      if (pathname.startsWith("/api/coach/"))
+        return await coach.api(req, res, pathname, account, { json, readJson, digest, activeAccount });
+      if (coach.suspended(account.id)) return json(res, 403, { error: "Доступ до трекера призупинено." });
+      if (pathname.startsWith("/api/calendar/") && calendar) {
+        return await calendar(req, res, pathname, account, { json, readJson, digest, activeAccount });
+      }
       if (pathname === "/api/workspace" && method === "GET") {
-        return json(res, 200, { account: account.id, revision: account.revision,
-          tracker: account.tracker ? JSON.parse(account.tracker) : null });
+        return json(res, 200, snapshot(account));
       }
       if (pathname === "/api/workspace" && method === "PUT") {
         const payload = await readJson(req);
+        if (payload?.account && payload.account !== account.id) return json(res, 401, { error: "Акаунт змінився." });
         if (!Number.isSafeInteger(payload?.revision) || payload.revision < 0)
           return json(res, 400, { error: "Відсутня версія даних." });
         try {
@@ -100,11 +148,22 @@ function workspaceApi(db, origin) {
         } catch {
           return json(res, 400, { error: "Некоректна копія трекера." });
         }
-        const updated = db.prepare(`UPDATE workspace_accounts SET tracker = ?, revision = revision + 1
-          WHERE id = ? AND revision = ? AND EXISTS (
-            SELECT 1 FROM workspace_sessions WHERE digest = ? AND expires > ?
-          )`).run(JSON.stringify(payload.tracker), account.id, payload.revision, digest, Math.floor(Date.now() / 1000));
-        if (!updated.changes) return json(res, 409, { error: "Серверна версія змінилася або сесію закрито. Онови сторінку й звір дані." });
+        const updated = coach.transaction(() => {
+          const current = activeAccount(db, req);
+          if (!current || current.id !== account.id || coach.suspended(account.id)) return false;
+          if (current.revision !== payload.revision) return false;
+          db.prepare("UPDATE workspace_accounts SET tracker = ?, revision = revision + 1 WHERE id = ?")
+            .run(JSON.stringify(payload.tracker), account.id);
+          coach.logChanges(account.id, JSON.parse(current.tracker), payload.tracker);
+          return true;
+        });
+        if (!updated) {
+          const current = activeAccount(db, req);
+          if (current?.id !== account.id) return json(res, 401, { error: "Сесію закрито." });
+          if (coach.suspended(account.id)) return json(res, 403, { error: "Доступ до трекера призупинено." });
+          if (current.tracker === JSON.stringify(payload.tracker)) return json(res, 200, { revision: current.revision });
+          return json(res, 409, { error: "На іншому пристрої вже збережено зміни." });
+        }
         return json(res, 200, { revision: payload.revision + 1 });
       }
       return json(res, 404, { error: "Сторінку не знайдено." });
@@ -119,4 +178,4 @@ function workspaceApi(db, origin) {
   };
 }
 
-module.exports = { openWorkspaces, provision, workspaceApi };
+module.exports = { openWorkspaces, provision, workspaceApi, activeAccount, snapshot, configureCoach };

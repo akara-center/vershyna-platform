@@ -51,7 +51,13 @@ if (document.getElementById?.("pilot-nav")) {
   }
 
   function showPersona() {
-    const { persona, image } = data().vision;
+    const pilot = data();
+    const { persona, image } = pilot.vision;
+    const avatar = pilot.graphics?.avatar;
+    $("#hero-avatar").hidden = !avatar;
+    $("#hero-default-art").toggleAttribute("hidden", Boolean(avatar));
+    if (avatar) $("#hero-avatar").src = avatar;
+    else $("#hero-avatar").removeAttribute("src");
     $("#heroName").textContent = persona || "Провідниця світла";
     $("#heroDescription").textContent = image || "Ясність · вплив · втілення";
   }
@@ -187,7 +193,7 @@ if (document.getElementById?.("pilot-nav")) {
     const open = Pilot.actions(state.missions).filter((row) => !row.kind && !row.done && !row.archived && !row.inactive);
     let candidates = [];
     let draft;
-    show("Співпраця з коучем", `${renderCoachSettings()}<section class="card pilot-card"><h2>Міжсесійний звіт</h2>
+    show("Співпраця з коучем", `${globalThis.Workspace ? '<p><a href="/coach">Відкрити спільний трекер</a></p>' : ""}${renderCoachSettings()}<section class="card pilot-card"><h2>Міжсесійний звіт</h2>
       <p>Вибери задачі, які хочеш показати коучу, і переглянь текст перед передачею.</p>
       <form id="report-form">
         <div class="pilot-inline"><label>Початок<input id="report-from" type="date" required value="${Pilot.periodStart(today, 1)}"></label>

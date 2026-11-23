@@ -123,7 +123,7 @@ function storeProjectChange(draft, backup = "-before-project-change") {
   try {
     Q.validate(draft);
     writeBackup(backup, JSON.stringify(state));
-    localStorage.setItem(KEY, JSON.stringify(draft));
+    persistTracker(draft);
   } catch {
     toast("Не вдалося зберегти зміну. Поточні проєкти залишилися без змін.");
     return false;
