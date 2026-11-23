@@ -48,6 +48,7 @@ const Templates = (() => {
       `<button class="icon copy-step" data-transfer="${transferId}">Перемістити</button>`,
       `<button class="icon copy-step" data-copy="${copyId}">Копія</button>`,
       `<button class="icon copy-step" data-edit="${editId}" aria-label="Редагувати крок: ${editLabel}">Редагувати ✎</button>`,
+      `<button class="icon copy-step" data-calendar="${editId}" aria-label="Додати в Google Calendar: ${editLabel}">Додати в Google Calendar</button>`,
       `<button class="icon copy-step" data-delete="${deleteId}" aria-label="Видалити крок: ${deleteLabel}">Видалити</button></div></div></div>`,
     ].join("");
   }

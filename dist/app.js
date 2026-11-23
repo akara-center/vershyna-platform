@@ -44,6 +44,7 @@ function bind() {
   if ($("#finalizeMission")) $("#finalizeMission").onclick = () => finalize(mission().id);
   $$("[data-finalize]").forEach((b) => (b.onclick = () => finalize(b.dataset.finalize)));
   $$("[data-toggle]").forEach((b) => (b.onclick = () => toggle(b.dataset.toggle)));
+  $$("[data-calendar]").forEach((b) => b.onclick = () => calendarEditor(b.dataset.calendar));
   $$("[data-edit]").forEach((b) => (b.onclick = () => stepEditor(b.dataset.edit)));
   $$("[data-copy]").forEach(
     (b) => (b.onclick = () => stepEditor(undefined, { copyId: b.dataset.copy })),
