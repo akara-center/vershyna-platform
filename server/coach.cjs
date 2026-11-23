@@ -5,13 +5,9 @@ const { randomUUID } = require("node:crypto");
 const sections = {
   vision: "Бачення", route: "Маршрут", projects: "Проєкти", indicators: "Показники",
 };
-const visionLabels = {
-  future: "Бачення майбутнього", self: "Образ себе", today: "Точка А", values: "Цінності",
-  skills: "Навички", support: "Опори", personaName: "Ім’я персонажа", personaMetaphor: "Метафора",
-};
 const blankTracker = () => ({ schemaVersion: 4, theme: "dark", active: null, missions: [] });
 
-function blocks(tracker) {
+function trackerBlocks(tracker, visionLabels) {
   const rows = new Map();
   const add = (id, parent, label, fields) => {
     const scope = parent ? [...rows.get(parent).scope, id] : [id];
@@ -31,10 +27,8 @@ function blocks(tracker) {
     steps(mission.steps, id);
   }
   const pilot = tracker?.pilot;
-  for (const [field, value] of Object.entries(pilot?.vision || {})) {
-    if (field === "project") continue;
-    add("vision:" + field, "vision", visionLabels[field] || field, { text: value });
-  }
+  for (const [field, label] of Object.entries(visionLabels))
+    add("vision:" + field, "vision", label, { text: pilot?.vision[field] ?? "" });
   for (const goal of pilot?.goals || []) {
     const id = "goal:" + goal.id;
     add(id, "route", goal.name, { name: goal.name, why: goal.why, change: goal.change, criteria: goal.criteria });
@@ -51,7 +45,9 @@ function editField(tracker, blockId, field, text) {
   const [type, ...parts] = blockId.split(":");
   const id = parts.join(":");
   if (type === "vision" && field === "text") {
-    tracker.pilot.vision[id] = text;
+    tracker.pilot ??= { version: 1, vision: {}, revisions: [], completions: [], indicators: [], reports: [] };
+    if (text) tracker.pilot.vision[id] = text;
+    else delete tracker.pilot.vision[id];
     return;
   }
   if (type === "project" && ["name", "goal"].includes(field)) {
@@ -78,7 +74,8 @@ function editField(tracker, blockId, field, text) {
   throw Error("Це поле не можна змінити пропозицією.");
 }
 
-function setUpCoach(db, { validateTracker, applyPackage }) {
+function setUpCoach(db, { validateTracker, applyPackage, visionLabels, reviseRoute }) {
+  const blocks = (tracker) => trackerBlocks(tracker, visionLabels);
   db.exec(`
     CREATE TABLE IF NOT EXISTS coach_roles (
       account_id TEXT PRIMARY KEY REFERENCES workspace_accounts(id)
@@ -266,7 +263,12 @@ function setUpCoach(db, { validateTracker, applyPackage }) {
       need(isCoach && contract.phase === "setup" && !contract.scopes, "Початкове наповнення доступне до передачі.", 403);
       need(!db.prepare("SELECT 1 FROM coach_visibility WHERE client_id = ? LIMIT 1").get(client),
         "Початкове наповнення недоступне, коли клієнт закрив частину трекера.", 409);
-      const updated = applyPackage(tracker, data.package);
+      let updated;
+      try {
+        updated = applyPackage(tracker, data.package);
+      } catch (error) {
+        need(false, error instanceof SyntaxError ? "Пакет не вдалося прочитати як JSON." : error.message);
+      }
       validateTracker(updated);
       db.prepare("UPDATE workspace_accounts SET tracker = ?, revision = revision + 1 WHERE id = ?").run(JSON.stringify(updated), client);
       return;
@@ -291,7 +293,7 @@ function setUpCoach(db, { validateTracker, applyPackage }) {
         need(!seen.has(key), "Одне поле можна запропонувати один раз.");
         seen.add(key);
         const text = clean(change.text);
-        need(text !== row.fields[change.field], "Запропонуй інший текст.");
+        need(text !== row.fields[change.field] && (change.field !== "name" || text), "Запропонуй інший текст.");
         editField(structuredClone(tracker), row.id, change.field, text);
         return { id: randomUUID(), block: row.id, label: row.label, field: change.field,
           before: row.fields[change.field], after: text, status: "pending", version: version(contract, row.id, change.field) };
@@ -324,8 +326,11 @@ function setUpCoach(db, { validateTracker, applyPackage }) {
           const id = change.block.slice(change.block.indexOf(":") + 1);
           const project = change.block.startsWith("project:") && updated.missions.find((mission) => mission.id === id);
           const parent = project ? null : updated.missions.map((mission) => QuestCore.find(mission.steps, id)?.node).find(Boolean);
+          need(!parent || parent.children?.length || !QuestCore.isDone(parent),
+            "Спочатку скасуй виконання батьківського кроку.", 409);
           const steps = project?.steps ?? (parent.children ??= []);
-          steps.push({ id: change.id, name: change.after, result: "", minutes: 10, xp: 50, done: false });
+          steps.push({ id: change.id, name: change.after, result: "", minutes: 10, xp: parent ? 0 : 50, done: false });
+          if (parent) QuestCore.distribute(parent);
           proposal.changes.find((entry) => entry.id === change.id).status = "accepted";
           continue;
         }
@@ -335,6 +340,8 @@ function setUpCoach(db, { validateTracker, applyPackage }) {
         editField(updated, change.block, change.field, change.after);
         proposal.changes.find((entry) => entry.id === change.id).status = "accepted";
       }
+      if (tracker.pilot && updated.pilot)
+        updated.pilot = reviseRoute(tracker.pilot, updated.pilot, now(), tracker.missions);
       QuestCore.normalize(updated);
       validateTracker(updated);
       logChanges(client, tracker, updated);

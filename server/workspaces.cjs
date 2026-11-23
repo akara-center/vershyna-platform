@@ -8,13 +8,15 @@ const vm = require("node:vm");
 const { setUpCoach } = require("./coach.cjs");
 
 require("../dist/quest-core.js");
-const { validatePilot, applyPackage } = vm.runInNewContext(
+const { validatePilot, applyPackage, reviseRoute, visionLabels } = vm.runInNewContext(
   ["route.js", "coach-package.js", "pilot-core.js"].map((name) =>
     fs.readFileSync(path.join(__dirname, "../dist", name), "utf8")).join("\n") + `
 ({
     validatePilot: Pilot.validate,
+    visionLabels: Route.visionLabels,
+    reviseRoute: (previous, updated, at, missions) => Route.revise(previous, updated.vision, Route.goals(updated), at, missions),
     applyPackage: (tracker, packet, uid, at) => CoachPackage.draft(tracker, CoachPackage.parse(packet), uid, at),
-  })`, { TextEncoder, structuredClone, QuestCore },
+  })`, { TextEncoder, structuredClone, QuestCore, atob },
 );
 
 function validateTracker(value) {
@@ -25,7 +27,7 @@ function validateTracker(value) {
 
 function configureCoach(db) {
   return setUpCoach(db, {
-    validateTracker,
+    validateTracker, visionLabels, reviseRoute,
     applyPackage: (tracker, packet) => applyPackage(tracker, packet, randomUUID, new Date().toISOString()),
   });
 }
@@ -131,7 +133,7 @@ function workspaceApi(db, origin, calendar, coach = configureCoach(db)) {
         return await coach.api(req, res, pathname, account, { json, readJson, digest, activeAccount });
       if (coach.suspended(account.id)) return json(res, 403, { error: "Доступ до трекера призупинено." });
       if (pathname.startsWith("/api/calendar/") && calendar) {
-        return await calendar(req, res, pathname, account, { json, readJson, digest });
+        return await calendar(req, res, pathname, account, { json, readJson, digest, activeAccount });
       }
       if (pathname === "/api/workspace" && method === "GET") {
         return json(res, 200, snapshot(account));

@@ -30,7 +30,17 @@ function renderRoute({ show, data, openProject }) {
     }).join("")}</ul>`;
   }
 
-  show("Мій шлях", `<form class="card pilot-card" id="vision-form">
+  const roadmap = goals.length ? `<section class="card pilot-card" aria-label="Карта маршруту">
+    <h2>Карта маршруту</h2>
+    ${goals.map((goal) => `<ol class="route-map">
+      <li><strong>Точка А</strong><p>${esc(vision.present || "Ще не описана")}</p></li>
+      <li><strong>Проміжні результати</strong>
+        ${goal.milestones.length ? goal.milestones.map((item) => `<p>${completed.has(item.id) ? "✓ " : ""}${esc(item.name)}</p>`).join("") : "<p>Ще не додані</p>"}</li>
+      <li><strong>Ціль</strong><p>${esc(goal.name)}</p></li>
+    </ol>`).join("")}
+  </section>` : "";
+
+  show("Мій шлях", `${roadmap}<section class="card pilot-card" id="path-graphics"></section><form class="card pilot-card" id="vision-form">
     <h2>Моє бачення</h2><div class="pilot-grid">${fields(Route.visionLabels, vision)}</div>
     <button class="primary">Зберегти бачення</button></form>
     <section class="pilot-card"><div class="route-heading"><h2>Мої цілі</h2>
@@ -53,6 +63,8 @@ function renderRoute({ show, data, openProject }) {
         ${projectList(goal.projectIds, revision.projectNames || {})}
         ${goal.milestones.map((item) => `<p>${esc(item.name)}</p>${projectList(item.projectIds, revision.projectNames || {})}`).join("")}`).join("")}</details>`).join("") ||
       "<p>Історія з’явиться після редагування.</p>"}</section>`);
+
+  renderPathGraphics(current);
 
   function saveRoute(nextVision, nextGoals, focus, keepVisionDraft = false) {
     const draft = keepVisionDraft ? new FormData($("#vision-form")) : null;
@@ -161,4 +173,57 @@ function renderRoute({ show, data, openProject }) {
   $$("[data-edit-result]").forEach((button) => button.onclick = () =>
     edit(Number(button.dataset.editResult), Number(button.dataset.result)));
   $$("[data-route-project]").forEach((button) => button.onclick = () => openProject(button.dataset.routeProject));
+}
+
+function renderPathGraphics(pilot) {
+  const panel = $("#path-graphics");
+  const labels = { avatar: "Аватар", infographic: "Інфографіка" };
+  const graphics = pilot.graphics ?? {};
+  panel.innerHTML = `<h2>Мій образ</h2><p class="note">Можна додати PNG або WebP.</p>
+    <div class="pilot-grid">${Object.entries(labels).map(([key, label]) => `<div>
+      ${graphics[key] ? `<img class="route-graphic route-${key}" src="${esc(graphics[key])}" alt="${label}">
+        <button type="button" data-remove-graphic="${key}">Прибрати зображення</button>` : ""}
+      <label>${label} <input type="file" accept="image/png,image/webp" data-path-graphic="${key}"></label>
+    </div>`).join("")}</div>`;
+  function persist(key, value) {
+    const previous = pilot.graphics;
+    const next = { ...graphics };
+    if (value) next[key] = value;
+    else delete next[key];
+    pilot.graphics = next;
+    if (!save()) {
+      pilot.graphics = previous;
+      return;
+    }
+    renderPathGraphics(pilot);
+  }
+  panel.querySelectorAll("[data-remove-graphic]").forEach((button) => {
+    button.onclick = () => persist(button.dataset.removeGraphic, null);
+  });
+  panel.querySelectorAll("[data-path-graphic]").forEach((input) => {
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const key = input.dataset.pathGraphic;
+      try {
+        if (file.size > Pilot.graphicLimits[key]) throw Error("Зображення завелике. Межа " + Pilot.graphicLimits[key] / 1024 + " КБ.");
+        const reader = new FileReader();
+        const value = await new Promise((resolve, reject) => {
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        if (!Pilot.validGraphic(key, value)) throw Error("Обери справний PNG або WebP.");
+        const image = new Image();
+        image.src = value;
+        await image.decode();
+        if (input.isConnected && state.pilot === pilot) persist(key, value);
+      } catch (error) {
+        if (input.isConnected) {
+          toast(error.message || "Не вдалося прочитати зображення.");
+          input.value = "";
+        }
+      }
+    };
+  });
 }

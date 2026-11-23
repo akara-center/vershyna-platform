@@ -17,6 +17,13 @@ function setupCalendar(db, origin, { clientId, clientSecret, encryptionKey, requ
   CREATE TABLE IF NOT EXISTS calendar_connections (
     account_id TEXT PRIMARY KEY REFERENCES workspace_accounts(id), refresh_token TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS calendar_cursors (
+    account_id TEXT PRIMARY KEY REFERENCES workspace_accounts(id), token TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS calendar_cancellations (
+    account_id TEXT NOT NULL REFERENCES workspace_accounts(id), event_id TEXT NOT NULL,
+    PRIMARY KEY (account_id, event_id)
+  );
   CREATE TABLE IF NOT EXISTS calendar_links (
     account_id TEXT NOT NULL REFERENCES workspace_accounts(id), task_id TEXT NOT NULL,
     event_id TEXT NOT NULL, slot TEXT NOT NULL, base TEXT, status TEXT NOT NULL, conflict TEXT,
@@ -81,7 +88,39 @@ function setupCalendar(db, origin, { clientId, clientSecret, encryptionKey, requ
   }
 
   const active = new Set();
-  const lastSync = new Map();
+
+  function resetLinks(account) {
+    db.prepare("DELETE FROM calendar_links WHERE account_id = ?").run(account);
+    db.prepare("DELETE FROM calendar_cursors WHERE account_id = ?").run(account);
+    db.prepare("DELETE FROM calendar_cancellations WHERE account_id = ?").run(account);
+  }
+
+  async function detectCancellations(calendar, account, restart = false) {
+    const cursor = db.prepare("SELECT token FROM calendar_cursors WHERE account_id = ?").get(account)?.token;
+    const ids = new Set(db.prepare("SELECT event_id FROM calendar_links WHERE account_id = ?").all(account).map((row) => row.event_id));
+    const touched = new Map();
+    let pageToken;
+    let nextSyncToken;
+    try {
+      do {
+        const page = await calendar.changes({ pageToken, syncToken: cursor });
+        for (const item of page.items || []) if (ids.has(item.id)) touched.set(item.id, item.status === "cancelled");
+        pageToken = page.nextPageToken;
+        nextSyncToken = page.nextSyncToken;
+      } while (pageToken);
+    } catch (error) {
+      if (error.status !== 410 || restart) throw error;
+      db.prepare("DELETE FROM calendar_cursors WHERE account_id = ?").run(account);
+      return detectCancellations(calendar, account, true);
+    }
+    coach.transaction(() => {
+      for (const [event, cancelled] of touched) {
+        if (cancelled) db.prepare("INSERT OR IGNORE INTO calendar_cancellations VALUES (?, ?)").run(account, event);
+        else db.prepare("DELETE FROM calendar_cancellations WHERE account_id = ? AND event_id = ?").run(account, event);
+      }
+      if (nextSyncToken) db.prepare("INSERT OR REPLACE INTO calendar_cursors VALUES (?, ?)").run(account, nextSyncToken);
+    });
+  }
 
   async function sync(account, onlyTask, choices) {
     if (active.has(account)) return;
@@ -94,6 +133,7 @@ function setupCalendar(db, origin, { clientId, clientSecret, encryptionKey, requ
         fetch: (url, options) => request(url, { ...options, signal: AbortSignal.timeout(10000) }) });
       const links = onlyTask ? [linkFor(account, onlyTask)].filter(Boolean) :
         db.prepare("SELECT * FROM calendar_links WHERE account_id = ? AND status != 'unscheduled'").all(account);
+      if (links.length) await detectCancellations(calendar, account).catch(() => {});
       for (const row of links) {
         const saved = current(account);
         const tracker = JSON.parse(saved.tracker);
@@ -113,7 +153,9 @@ function setupCalendar(db, origin, { clientId, clientSecret, encryptionKey, requ
             }
             result = await reconcile(calendar, { eventId: row.event_id, base: value, tracker: value, choices });
           } else {
-            result = await reconcile(calendar, { eventId: row.event_id, base: JSON.parse(row.base), tracker: value, choices });
+            const cancelled = Boolean(db.prepare("SELECT 1 FROM calendar_cancellations WHERE account_id = ? AND event_id = ?")
+              .get(account, row.event_id));
+            result = await reconcile(calendar, { eventId: row.event_id, base: JSON.parse(row.base), tracker: value, choices, cancelled });
           }
         } catch {
           result = { status: "unavailable" };
@@ -148,19 +190,19 @@ function setupCalendar(db, origin, { clientId, clientSecret, encryptionKey, requ
     }
   }
 
-  function background(account) {
-    if (!enabled || active.has(account) || Date.now() - (lastSync.get(account) || 0) < 60000) return;
-    lastSync.set(account, Date.now());
-    void sync(account).catch(() => {});
+  async function background() {
+    for (const { account_id } of db.prepare(`SELECT DISTINCT c.account_id FROM calendar_connections c
+      JOIN calendar_links l ON l.account_id = c.account_id WHERE l.status != 'unscheduled'`).all()) {
+      await sync(account_id).catch(() => {});
+    }
   }
 
-  return async (req, res, pathname, account, { json, readJson, digest }) => {
+  async function api(req, res, pathname, account, { json, readJson, digest, activeAccount }) {
     const url = new URL(req.url, origin);
     const id = account.id;
     const method = req.method;
     if (pathname === "/api/calendar/status" && method === "GET") {
       const connected = enabled && Boolean(connection(id));
-      if (connected) background(id);
       const taskId = url.searchParams.get("task");
       return json(res, 200, { enabled, connected, link: taskId ? viewLink(linkFor(id, taskId)) : null });
     }
@@ -185,8 +227,12 @@ function setupCalendar(db, origin, { clientId, clientSecret, encryptionKey, requ
         const tokens = await exchange({ code, code_verifier: row.verifier, grant_type: "authorization_code", redirect_uri: redirect });
         if (!tokens.refresh_token || !String(tokens.scope || "").split(" ").includes(scope))
           throw Error("Потрібен доступ до власних подій Google Calendar.");
-        if (connection(id)) db.prepare("DELETE FROM calendar_links WHERE account_id = ?").run(id);
-        db.prepare("INSERT OR REPLACE INTO calendar_connections VALUES (?, ?)").run(id, encrypt(tokens.refresh_token, id));
+        if (activeAccount(db, req)?.id !== id || coach.suspended(id) || active.has(id))
+          throw Error("Сесію завершено або триває синхронізація.");
+        coach.transaction(() => {
+          if (connection(id)) resetLinks(id);
+          db.prepare("INSERT OR REPLACE INTO calendar_connections VALUES (?, ?)").run(id, encrypt(tokens.refresh_token, id));
+        });
         return void res.writeHead(303, { Location: "/account?google=connected", "Cache-Control": "no-store" }).end();
       } catch {
         return void res.writeHead(303, { Location: "/account?google=error", "Cache-Control": "no-store" }).end();
@@ -197,7 +243,7 @@ function setupCalendar(db, origin, { clientId, clientSecret, encryptionKey, requ
       db.exec("BEGIN IMMEDIATE");
       try {
         db.prepare("DELETE FROM calendar_connections WHERE account_id = ?").run(id);
-        db.prepare("DELETE FROM calendar_links WHERE account_id = ?").run(id);
+        resetLinks(id);
         db.prepare("DELETE FROM calendar_oauth WHERE account_id = ?").run(id);
         db.exec("COMMIT");
       } catch (error) {
@@ -209,6 +255,7 @@ function setupCalendar(db, origin, { clientId, clientSecret, encryptionKey, requ
     if (pathname === "/api/calendar/link" && method === "POST") {
       if (!connection(id)) return json(res, 409, { error: "Спочатку під’єднай Google Calendar." });
       const data = await readJson(req);
+      if (activeAccount(db, req)?.id !== id || coach.suspended(id)) return json(res, 401, { error: "Сесію завершено." });
       const taskId = data?.task;
       if (typeof taskId !== "string" || !taskIn(JSON.parse(current(id).tracker), taskId))
         return json(res, 404, { error: "Збережену задачу не знайдено." });
@@ -229,7 +276,9 @@ function setupCalendar(db, origin, { clientId, clientSecret, encryptionKey, requ
       return json(res, 200, { link: viewLink(linkFor(id, taskId)) });
     }
     return json(res, 404, { error: "Дію календаря не знайдено." });
-  };
+  }
+
+  return { api, enabled, background };
 }
 
 module.exports = { setupCalendar };

@@ -14,8 +14,9 @@ const mime = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; cha
 
 function createServer(db, origin, calendarOptions) {
   const coach = configureCoach(db);
-  const api = workspaceApi(db, origin, setupCalendar(db, origin, calendarOptions, coach), coach);
-  return http.createServer((req, res) => {
+  const calendar = setupCalendar(db, origin, calendarOptions, coach);
+  const api = workspaceApi(db, origin, calendar.api, coach);
+  const server = http.createServer({ requestTimeout: 20000 }, (req, res) => {
     const pathname = new URL(req.url, "http://localhost").pathname;
     if (pathname === "/healthz" && req.method === "GET") return void res.writeHead(200, { "Cache-Control": "no-store" }).end("ok");
     if (pathname.startsWith("/api/")) return void api(req, res, pathname);
@@ -44,6 +45,19 @@ function createServer(db, origin, calendarOptions) {
     if (req.method === "HEAD") return void res.end();
     fs.createReadStream(file).on("error", () => res.destroy()).pipe(res);
   });
+  if (calendar.enabled) {
+    let syncing = false;
+    const timer = setInterval(async () => {
+      if (syncing) return;
+      syncing = true;
+      try { await calendar.background(); }
+      catch { console.warn("Не вдалося виконати фонову звірку Google Calendar."); }
+      finally { syncing = false; }
+    }, 60000);
+    timer.unref();
+    server.once("close", () => clearInterval(timer));
+  }
+  return server;
 }
 
 if (require.main === module) {
@@ -51,11 +65,17 @@ if (require.main === module) {
   const dbPath = process.env.VERSHYNA_DB || path.resolve("var/vershyna.sqlite");
   if (dbPath !== ":memory:") fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = openWorkspaces(dbPath);
-  if (["provision", "rotate-key"].includes(process.argv[2])) {
+  if (process.argv[2] === "backup") {
+    const destination = process.argv[3];
+    if (!destination || fs.existsSync(destination)) throw Error("Вкажи шлях до нового файлу резервної копії.");
+    db.prepare("VACUUM INTO ?").run(path.resolve(destination));
+    db.close();
+  } else if (["provision", "rotate-key"].includes(process.argv[2])) {
     console.log(provision(db, process.argv[3] || "", process.argv[4], process.argv[2] === "rotate-key"));
     db.close();
   } else {
-    const port = Number(process.env.VERSHYNA_PORT || 8787);
+    const port = Number(process.env.VERSHYNA_PORT || process.env.PORT || 8787);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw Error("Некоректний порт.");
     const origin = new URL(process.env.VERSHYNA_ORIGIN || `http://127.0.0.1:${port}`).origin;
     const calendarOptions = { clientId: process.env.VERSHYNA_GOOGLE_CLIENT_ID,
       clientSecret: process.env.VERSHYNA_GOOGLE_CLIENT_SECRET, encryptionKey: process.env.VERSHYNA_GOOGLE_TOKEN_KEY };

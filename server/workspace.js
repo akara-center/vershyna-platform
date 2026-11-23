@@ -26,6 +26,12 @@ globalThis.Workspace = (() => {
   let closed = false;
   let timer;
   let writing = false;
+  const editedForms = new Set();
+
+  function hasUnsubmittedForm() {
+    for (const form of editedForms) if (!form.isConnected) editedForms.delete(form);
+    return editedForms.size > 0 || Boolean(document.querySelector("dialog[open]"));
+  }
 
   function setDraft(value) {
     if (localStorage.getItem(outbox) !== raw) throw Error("Цей трекер уже редагується в іншій вкладці.");
@@ -85,7 +91,7 @@ globalThis.Workspace = (() => {
         const latest = await request("GET");
         if (draft && (remote || draft.revision !== latest.revision)) {
           remote = latest;
-        } else if (!draft && latest.revision !== revision && !document.querySelector("dialog[open]")) {
+        } else if (!draft && latest.revision !== revision && !hasUnsubmittedForm()) {
           apply(latest);
         }
       }
@@ -157,6 +163,16 @@ globalThis.Workspace = (() => {
     } finally { running = false; }
   };
 
+  document.addEventListener("input", (event) => {
+    const form = event.target.form;
+    if (form && !form.closest("dialog")) editedForms.add(form);
+  });
+  document.addEventListener("submit", (event) => {
+    const before = draft;
+    queueMicrotask(() => {
+      if (before !== draft || !event.target.isConnected) editedForms.delete(event.target);
+    });
+  }, true);
   addEventListener("online", () => schedule(0));
   addEventListener("pageshow", () => schedule(0));
   document.addEventListener("visibilitychange", () => {
