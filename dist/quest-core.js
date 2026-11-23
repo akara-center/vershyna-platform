@@ -128,9 +128,23 @@
   function missionDone(m) {
     return m.steps.length > 0 && m.steps.every(isDone);
   }
+  function inactiveSteps(steps) {
+    const ids = new Set();
+    function visit(nodes, inherited) {
+      for (const node of nodes) {
+        const inactive = inherited || node.inactive === true;
+        if (inactive) ids.add(node.id);
+        if (node.children) visit(node.children, inactive);
+      }
+    }
+    visit(steps, false);
+    return ids;
+  }
+
   function nextAction(m) {
     function pending(node) {
-      return isDone(node) ? [] : node.children?.length ? node.children.flatMap(pending) : [node];
+      if (node.inactive || isDone(node)) return [];
+      return node.children?.length ? node.children.flatMap(pending) : [node];
     }
     const actions = m.steps.flatMap(pending);
     return actions.find((n) => n.id === m.focusId && !isDone(n)) || actions.find((n) => !isDone(n));
@@ -269,6 +283,7 @@
         node.minutes < 1 ||
         node.minutes > 120 ||
         typeof node.done !== "boolean" ||
+        (node.inactive !== undefined && typeof node.inactive !== "boolean") ||
         (node.plannedDate !== undefined && node.plannedDate !== "" &&
           (typeof node.plannedDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(node.plannedDate)))
       )
@@ -431,6 +446,7 @@
     ordered,
     missionDone,
     nextAction,
+    inactiveSteps,
     refreshTree,
     transfer,
   };

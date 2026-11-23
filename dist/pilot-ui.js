@@ -32,20 +32,22 @@ if (document.getElementById?.("pilot-nav")) {
     }
   }
 
+  function openProject(id) {
+    const project = state.missions.find((item) => item.id === id);
+    if (!project) return;
+    if (project.archived) {
+      viewArchive(id);
+      return;
+    }
+    resetTimer();
+    state.active = id;
+    save();
+    render();
+    navigate("day");
+  }
+
   function showPath() {
-    renderRoute({ show, data, openProject(id) {
-      const project = state.missions.find((item) => item.id === id);
-      if (!project) return;
-      if (project.archived) {
-        viewArchive(id);
-        return;
-      }
-      resetTimer();
-      state.active = id;
-      save();
-      render();
-      navigate("day");
-    } });
+    renderRoute({ show, data, openProject });
   }
 
   function showPersona() {
@@ -92,6 +94,19 @@ if (document.getElementById?.("pilot-nav")) {
     });
   }
 
+  function indicatorChart(rows, max, today, name) {
+    const todayMs = Date.parse(today);
+    const points = rows.map((row) => ({
+      daysAgo: (todayMs - Date.parse(row.date)) / 86400000, value: row.value,
+    })).filter((row) => row.daysAgo >= 0 && row.daysAgo < 30);
+    if (!points.length) return "";
+    return `<div class="indicator-chart" aria-hidden="true">
+      <div class="indicator-axis"><span>${max}${max === 100 ? "%" : ""}</span><span>0</span></div>
+      <div class="indicator-area">${points.map((row) =>
+        `<i style="left:${(29 - row.daysAgo) / 29 * 100}%;bottom:${row.value / max * 100}%"></i>`).join("")}</div>
+      </div><p class="note">${esc(name)} · останні 30 днів</p>`;
+  }
+
   function showProgress() {
     const today = Pilot.kyivDate();
     show("Мій прогрес", `<section class="card pilot-card"><h2>Результати</h2>
@@ -103,6 +118,7 @@ if (document.getElementById?.("pilot-nav")) {
       <div class="pilot-grid">${data().indicators.map((indicator) => {
         const rows = [...indicator.entries].sort((a, b) => b.date.localeCompare(a.date));
         return `<section><h3>${esc(indicator.name)} · ${indicator.max === 100 ? "0–100%" : "0–10"}</h3>
+          ${indicatorChart(rows, indicator.max, today, indicator.name)}
           <p class="note">Вимірів: ${rows.length}</p>
           ${rows.map((entry) => `<div class="pilot-reading"><time datetime="${entry.date}">${dateLabel(entry.date)}</time>
           <meter min="0" max="${indicator.max}" value="${entry.value}" aria-label="${esc(indicator.name)} ${dateLabel(entry.date)}"></meter>
@@ -110,9 +126,11 @@ if (document.getElementById?.("pilot-nav")) {
       }).join("") || "<p>Додай показник у розділі «Мій день».</p>"}</div></section>`);
     const update = () => {
       const results = Pilot.results(data(), Pilot.periodStart(today, Number($("#progress-period").value)), today);
-      const dated = new Set(data().completions.filter((row) => !row.reversedAt).map((row) => row.id));
+      const dated = new Set(data().completions.filter((row) => !row.reversedAt && row.kind !== "milestone").map((row) => row.id));
       const all = Pilot.actions(state.missions);
-      const open = all.filter((row) => !row.done && !row.archived && !row.kind);
+      const tasks = all.filter((row) => !row.done && !row.archived && !row.kind);
+      const open = tasks.filter((row) => !row.inactive);
+      const inactive = tasks.filter((row) => row.directlyInactive);
       const unknown = all.filter((row) => row.done && !dated.has(row.id));
       const groups = new Map();
       for (const row of results) {
@@ -120,11 +138,45 @@ if (document.getElementById?.("pilot-nav")) {
         groups.get(row.project).push(row);
       }
       const list = (rows) => `<ul>${rows.map((row) => `<li>${esc(row.project)} · ${esc(row.name)}</li>`).join("")}</ul>`;
-      $("#progress-results").innerHTML = `<h3>Завершено · ${results.length}</h3>
-        ${[...groups].map(([project, rows]) => `<h4>${esc(project)}</h4><ul>${rows.map((row) =>
-          `<li><time>${dateLabel(Pilot.kyivDate(new Date(row.at)))}</time> · ${esc(row.name)}</li>`).join("")}</ul>`).join("") || "<p>За цей період завершень поки немає.</p>"}
-        <details><summary>Залишилося виконати · ${open.length}</summary>${list(open)}</details>
-        ${unknown.length ? `<details><summary>Виконано без дати · ${unknown.length}</summary>${list(unknown)}</details>` : ""}`;
+      const milestones = results.filter((row) => row.kind === "milestone");
+      const taskList = (rows, deferred) => `<ul class="progress-tasks">${rows.map((row) =>
+        `<li><strong>${esc(row.name)}</strong><span class="note">${esc(row.project)}
+          ${row.planned ? ` · план ${dateLabel(row.planned)}${!deferred && row.planned < today ? " · дата минула" : ""}` : ""}</span>
+          <div class="pilot-actions">
+            ${deferred ? "" : `${row.canFocus ? `<button data-progress-task="continue" data-id="${esc(row.id)}" data-project="${esc(row.projectId)}">Продовжити</button>` : ""}
+            <button data-progress-task="edit" data-id="${esc(row.id)}" data-project="${esc(row.projectId)}">Редагувати</button>`}
+            ${deferred || !row.treeDone ? `<button data-progress-task="${deferred ? "restore" : "inactive"}" data-id="${esc(row.id)}" data-project="${esc(row.projectId)}">
+              ${deferred ? "Повернути до плану" : "Позначити неактуальним"}</button>` : ""}
+          </div></li>`).join("")}</ul>`;
+      const panel = $("#progress-results");
+      const openSections = new Set([...panel.querySelectorAll("details[open]")].map((item) => item.id));
+      panel.innerHTML = `<h3>Завершено · ${results.length}</h3>
+        ${[...groups].filter(([, rows]) => rows.some((row) => row.kind !== "milestone")).map(([project, rows]) =>
+          `<h4>${esc(project)}</h4><ul>${rows.filter((row) => row.kind !== "milestone").map((row) =>
+          `<li><time>${dateLabel(Pilot.kyivDate(new Date(row.at)))}</time> · ${esc(row.name)}${row.kind === "project" ? " · проєкт" : ""}</li>`).join("")}</ul>`).join("") ||
+          (milestones.length ? "" : "<p>За цей період завершень поки немає.</p>")}
+        ${milestones.length ? `<h4>Проміжні результати</h4><ul>${milestones.map((row) =>
+          `<li>${dateLabel(Pilot.kyivDate(new Date(row.at)))} · ${esc(row.project)} · ${esc(row.name)}</li>`).join("")}</ul>` : ""}
+        <details id="progress-open"><summary>Залишилося виконати · ${open.length}</summary>${taskList(open, false)}</details>
+        <details id="progress-inactive"><summary>Неактуальні · ${inactive.length}</summary>${taskList(inactive, true)}</details>
+        ${unknown.length ? `<details id="progress-undated"><summary>Виконано без дати · ${unknown.length}</summary>${list(unknown)}</details>` : ""}
+        ${data().relevance?.length ? `<details id="progress-changes"><summary>Історія актуальності</summary><ul>${
+          [...data().relevance].reverse().map((row) => `<li>${dateLabel(Pilot.kyivDate(new Date(row.at)))} · ${esc(row.project)} ·
+          ${esc(row.name)} · ${row.inactive ? "Неактуально" : "Повернуто до плану"}</li>`).join("")}</ul></details>` : ""}`;
+      panel.querySelectorAll("details").forEach((item) => item.open = openSections.has(item.id));
+      panel.querySelectorAll("[data-progress-task]").forEach((button) => button.onclick = () => {
+        const { project, id, progressTask } = button.dataset;
+        if (progressTask === "inactive" || progressTask === "restore") {
+          if (setTaskRelevance(project, id, progressTask === "inactive")) {
+            update();
+            $(progressTask === "inactive" ? "#progress-open summary" : "#progress-inactive summary")?.focus();
+          }
+          return;
+        }
+        openProject(project);
+        if (progressTask === "edit") stepEditor(id);
+        else takeInWork(id);
+      });
     };
     $("#progress-period").onchange = update;
     update();
@@ -132,10 +184,10 @@ if (document.getElementById?.("pilot-nav")) {
 
   function showCoach() {
     const today = Pilot.kyivDate();
-    const open = Pilot.actions(state.missions).filter((row) => !row.kind && !row.done && !row.archived);
+    const open = Pilot.actions(state.missions).filter((row) => !row.kind && !row.done && !row.archived && !row.inactive);
     let candidates = [];
     let draft;
-    show("Співпраця з коучем", `<section class="card pilot-card"><h2>Міжсесійний звіт</h2>
+    show("Співпраця з коучем", `${renderCoachSettings()}<section class="card pilot-card"><h2>Міжсесійний звіт</h2>
       <p>Вибери задачі, які хочеш показати коучу, і переглянь текст перед передачею.</p>
       <form id="report-form">
         <div class="pilot-inline"><label>Початок<input id="report-from" type="date" required value="${Pilot.periodStart(today, 1)}"></label>
@@ -151,7 +203,9 @@ if (document.getElementById?.("pilot-nav")) {
         <button id="report-share" ${navigator.share ? "" : "hidden"}>Поділитися</button>
         <a id="report-telegram" target="_blank" rel="noopener noreferrer">Telegram</a>
         <a id="report-whatsapp" target="_blank" rel="noopener noreferrer">WhatsApp</a></div></div></section>
-      <section class="card pilot-card"><h2>Історія підготовлених звітів</h2><div id="report-history"></div></section>`);
+      <section class="card pilot-card"><h2>Історія підготовлених звітів</h2><div id="report-history"></div></section>${renderCoachImports()}`);
+    $("#open-coach-import").onclick = () => coachImport(showCoach);
+    bindCoachSettings();
     const history = () => {
       $("#report-history").innerHTML = [...data().reports].reverse().map((row) =>
         `<details><summary>${backupStamp(row.at)}</summary><p class="pilot-report-entry">${esc(row.text)}</p></details>`).join("") ||
@@ -163,15 +217,34 @@ if (document.getElementById?.("pilot-nav")) {
       const to = $("#report-to").value;
       $("#report-preview").hidden = true;
       candidates = [...Pilot.results(data(), from, to), ...open];
-      $("#report-choices").innerHTML = candidates.map((row, index) => {
-        const key = `${row.id}:${row.at ?? "open"}`;
-        return `<label class="pilot-choice"><input type="checkbox" value="${index}" data-key="${esc(key)}" ${previous.has(key) ? "checked" : ""}>
-          <span>${esc(row.project)} · ${esc(row.name)} <small>(${row.at ? "виконано" : "у роботі"})</small></span></label>`;
-      }).join("") || "<p>Немає записів для вибору.</p>";
+      const groups = new Map();
+      candidates.forEach((row, index) => {
+        const group = row.kind === "milestone" ? "Проміжні результати · " + row.project : row.project;
+        const id = row.projectId ? "project:" + row.projectId : "label:" + group;
+        if (!groups.has(id)) groups.set(id, { title: group, rows: [] });
+        const key = `${row.kind ?? "task"}:${row.id}:${row.at ?? "open"}`;
+        groups.get(id).rows.push(`<label class="pilot-choice"><input type="checkbox" value="${index}" data-key="${esc(key)}"
+          ${previous.has(key) ? "checked" : ""}><span>${esc(row.name)} <small>(${row.at ? "виконано" : "у роботі"})</small></span></label>`);
+      });
+      $("#report-choices").innerHTML = [...groups.values()].map((group) => `<section class="report-group">
+        <h3>${esc(group.title)}</h3><button type="button" data-select-group>Вибрати всі записи групи</button>
+        ${group.rows.join("")}</section>`).join("") || "<p>Немає записів для вибору.</p>";
+      $$("[data-select-group]").forEach((button) => button.onclick = () => {
+        const boxes = [...button.closest("section").querySelectorAll("input")];
+        const select = boxes.some((box) => !box.checked);
+        boxes.forEach((box) => box.checked = select);
+        $("#report-preview").hidden = true;
+        $("#report-message").textContent = "";
+        button.textContent = select ? "Зняти вибір групи" : "Вибрати всі записи групи";
+      });
     };
     $("#report-form").oninput = () => {
       $("#report-preview").hidden = true;
       $("#report-message").textContent = "";
+      $$("[data-select-group]").forEach((button) => {
+        const all = [...button.closest("section").querySelectorAll("input")].every((box) => box.checked);
+        button.textContent = all ? "Зняти вибір групи" : "Вибрати всі записи групи";
+      });
     };
     $("#report-from").onchange = choices;
     $("#report-to").onchange = choices;

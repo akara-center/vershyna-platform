@@ -20,6 +20,7 @@ const Templates = (() => {
 
   function taskTools({
     focusButton,
+    relevanceButton,
     childButton,
     upId,
     upDisabled,
@@ -43,6 +44,7 @@ const Templates = (() => {
       '<div class="task-menu">',
       `<button class="ghost small" data-menu="${menuId}" aria-label="Дії з кроком: ${menuLabel}" aria-expanded="false">⋯</button>`,
       '<div class="task-actions" hidden>',
+      relevanceButton,
       `<button class="icon copy-step" data-transfer="${transferId}">Перемістити</button>`,
       `<button class="icon copy-step" data-copy="${copyId}">Копія</button>`,
       `<button class="icon copy-step" data-edit="${editId}" aria-label="Редагувати крок: ${editLabel}">Редагувати ✎</button>`,

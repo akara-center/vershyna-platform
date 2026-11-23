@@ -15,11 +15,15 @@ const Pilot = (() => {
   function validate(value) {
     if (value === undefined) return;
     if (!value || value.version !== 1 || !validVision(value.vision) ||
-        !Route.valid(value.goals) ||
+        !Route.valid(value.goals) || !CoachPackage.validImports(value.coachImports) || !CoachPackage.validSettings(value.coachSettings) ||
+        (value.relevance !== undefined && (!Array.isArray(value.relevance) ||
+          !value.relevance.every((row) => row && text(row.id) && text(row.name) &&
+            text(row.project) && stamp(row.at) && typeof row.inactive === "boolean"))) ||
         !Array.isArray(value.revisions) || !value.revisions.every((r) =>
           r && stamp(r.at) && validVision(r.vision) && Route.valid(r.goals) && Route.validNames(r.projectNames)) ||
         !Array.isArray(value.completions) || !value.completions.every((r) => r &&
-          text(r.id) && text(r.project) && text(r.name) && (!r.planned || day(r.planned)) && stamp(r.at) && (!r.reversedAt || stamp(r.reversedAt))) ||
+          (r.kind === undefined || ["project", "milestone"].includes(r.kind)) &&
+          text(r.id) && text(r.project) && text(r.name) && (r.projectId === undefined || text(r.projectId)) && (!r.planned || day(r.planned)) && stamp(r.at) && (!r.reversedAt || stamp(r.reversedAt))) ||
         !Array.isArray(value.indicators) || !value.indicators.every((r) => r &&
           text(r.id) && text(r.name) && [10, 100].includes(r.max) && r.version === 1 &&
           Array.isArray(r.entries) && r.entries.every((e) => e && day(e.date) &&
@@ -41,15 +45,21 @@ const Pilot = (() => {
   }
 
   function actions(missions) {
-    return missions.flatMap((project) => [
-      ...QuestCore.allSteps(project.steps).map((node) => ({
-        id: node.id, name: node.name, project: project.name, projectId: project.id,
-        planned: day(node.plannedDate) ? node.plannedDate : undefined, archived: Boolean(project.archived),
-        done: node.children?.length ? Boolean(node.finalized) : node.done,
-      })),
-      { id: project.id, name: project.name, project: project.name, projectId: project.id,
-        done: Boolean(project.finalized), archived: Boolean(project.archived), kind: "project" },
-    ]);
+    return missions.flatMap((project) => {
+      const inactive = QuestCore.inactiveSteps(project.steps);
+      return [
+        ...QuestCore.allSteps(project.steps).map((node) => ({
+          id: node.id, name: node.name, project: project.name, projectId: project.id,
+          planned: day(node.plannedDate) ? node.plannedDate : undefined, archived: Boolean(project.archived),
+          done: node.children?.length ? Boolean(node.finalized) : node.done,
+          inactive: inactive.has(node.id), directlyInactive: node.inactive === true,
+          treeDone: QuestCore.isDone(node),
+          canFocus: !inactive.has(node.id) && Boolean(QuestCore.nextAction({ steps: [node] })),
+        })),
+        { id: project.id, name: project.name, project: project.name, projectId: project.id,
+          done: Boolean(project.finalized), archived: Boolean(project.archived), kind: "project" },
+      ];
+    });
   }
 
   function recordCompletion(data, before, after, at) {
@@ -57,9 +67,9 @@ const Pilot = (() => {
     for (const item of after) {
       if (old.get(item.id) === item.done || !old.has(item.id)) continue;
       if (item.done) {
-        data.completions.push({ id: item.id, project: item.project, name: item.name, planned: item.planned, at });
+        data.completions.push({ id: item.id, project: item.project, projectId: item.projectId, name: item.name, planned: item.planned, kind: item.kind, at });
       } else {
-        const entry = [...data.completions].reverse().find((row) => row.id === item.id && !row.reversedAt);
+        const entry = [...data.completions].reverse().find((row) => row.kind !== "milestone" && row.id === item.id && !row.reversedAt);
         if (entry) entry.reversedAt = at;
       }
     }

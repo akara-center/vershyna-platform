@@ -23,6 +23,7 @@ let persistenceBlocked = false;
 let startupError = "";
 
 const BACKUP_LABELS = [
+  ["-before-coach-import", "Копія перед додаванням пакета коуча"],
   ["-before-github", "Копія перед перенесенням на GitHub"],
   ["-before-import", "Копія перед останнім імпортом"],
   ["-before-v4", "Копія перед оновленням"],

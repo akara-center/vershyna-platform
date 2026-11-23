@@ -27,7 +27,7 @@ function finishEdit() {
 function takeInWork(id) {
   const m = mission(),
     match = Q.find(m.steps, id);
-  if (!match || Q.isDone(match.node)) return;
+  if (!match || Q.isDone(match.node) || Q.inactiveSteps(m.steps).has(id)) return;
   const target = Q.nextAction({ steps: [match.node] });
   if (!target) return;
   function promote(nodes) {
@@ -63,7 +63,7 @@ function updateParents() {
 
 function toggle(id) {
   const found = Q.find(mission().steps, id);
-  if (!found || found.node.children?.length) return;
+  if (!found || found.node.children?.length || Q.inactiveSteps(mission().steps).has(id)) return;
   const completions = Pilot.actions([mission()]);
   const before = totalXP(),
     oldRewards = Q.rewards(before).unlocked.length;
@@ -95,6 +95,11 @@ function finalize(id) {
   const m = mission(),
     node = id === m.id ? m : Q.find(m.steps, id)?.node;
   if (!node) return;
+  if (node !== m && (Q.inactiveSteps(m.steps).has(id) ||
+      (!node.finalized && Q.allSteps(node.children || []).some((child) => child.inactive && !Q.isDone(child))))) {
+    toast("Поверни неактуальні кроки до плану, щоб завершити цю задачу.");
+    return;
+  }
   const ready = node === m ? Q.missionDone(m) : Q.isDone(node);
   if (node === m && !node.finalized && !ready) {
     toast("Спочатку заверши задачі проєкту.");
@@ -110,14 +115,14 @@ function finalize(id) {
   render();
 }
 
-function storeProjectChange(draft) {
+function storeProjectChange(draft, backup = "-before-project-change") {
   if (persistenceBlocked) {
     toast(startupError);
     return false;
   }
   try {
     Q.validate(draft);
-    writeBackup("-before-project-change", JSON.stringify(state));
+    writeBackup(backup, JSON.stringify(state));
     localStorage.setItem(KEY, JSON.stringify(draft));
   } catch {
     toast("Не вдалося зберегти зміну. Поточні проєкти залишилися без змін.");
@@ -167,4 +172,30 @@ function deleteProject(id) {
 function recordPilotCompletion(before) {
   state.pilot ??= Pilot.empty();
   Pilot.recordCompletion(state.pilot, before, Pilot.actions([mission()]), new Date().toISOString());
+}
+
+
+function setTaskRelevance(projectId, id, inactive) {
+  const draft = structuredClone(state);
+  const project = draft.missions.find((item) => item.id === projectId && !item.archived);
+  const node = project && Q.find(project.steps, id)?.node;
+  if (!node || Boolean(node.inactive) === inactive || (inactive && Q.isDone(node))) return false;
+  if (inactive) node.inactive = true;
+  else delete node.inactive;
+  if (project.focusId && Q.nextAction(project)?.id !== project.focusId) delete project.focusId;
+  draft.pilot ??= Pilot.empty();
+  draft.pilot.relevance ??= [];
+  draft.pilot.relevance.push({
+    id, project: project.name, name: node.name, inactive, at: new Date().toISOString(),
+  });
+  const previous = state;
+  state = draft;
+  if (!save()) {
+    state = previous;
+    return false;
+  }
+  resetTimer();
+  render();
+  toast(inactive ? "Крок позначено неактуальним." : "Крок повернуто до плану.");
+  return true;
 }

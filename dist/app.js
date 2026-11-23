@@ -16,6 +16,8 @@ function bind() {
   $("#openTrash").onclick = showTrash;
   if ($("#archiveMission")) $("#archiveMission").onclick = () => archiveProject(mission().id);
   if ($("#deleteMission")) $("#deleteMission").onclick = () => deleteProject(mission().id);
+  $$("[data-relevance]").forEach((button) => button.onclick = () =>
+    setTaskRelevance(mission().id, button.dataset.relevance, button.dataset.inactive === "true"));
   $$("[data-delete]").forEach((b) => (b.onclick = () => deleteStep(b.dataset.delete)));
   $$("[data-transfer]").forEach((b) => (b.onclick = () => transferEditor(b.dataset.transfer)));
   $$("[data-focus]").forEach((b) => (b.onclick = () => takeInWork(b.dataset.focus)));

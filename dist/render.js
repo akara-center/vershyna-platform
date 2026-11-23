@@ -1,12 +1,15 @@
 "use strict";
 // DOM rendering using Templates; no initialization side effects.
 
-function tools(node, index, length, depth) {
-  const focus = !Q.isDone(node)
+function tools(node, index, length, depth, inactive) {
+  const focus = !inactive && !Q.isDone(node)
     ? `<button class="icon copy-step focus-step" data-focus="${esc(node.id)}">Взяти в роботу</button>`
     : "";
   return Templates.taskTools({
     focusButton: focus,
+    relevanceButton: node.inactive || (!inactive && !Q.isDone(node))
+      ? `<button class="icon copy-step" data-relevance="${esc(node.id)}" data-inactive="${!node.inactive}">${node.inactive ? "Повернути до плану" : "Позначити неактуальним"}</button>`
+      : "",
     childButton:
       depth < 6
         ? `<button class="icon copy-step child-step" data-child="${esc(node.id)}">＋ Підкрок</button>`
@@ -28,11 +31,12 @@ function tools(node, index, length, depth) {
   });
 }
 
-function renderSteps(steps, depth = 0) {
+function renderSteps(steps, depth = 0, inactiveIds = Q.inactiveSteps(steps)) {
   return Q.ordered(steps)
     .map((node) => {
       const index = steps.indexOf(node),
         group = !!node.children?.length,
+        inactive = inactiveIds.has(node.id),
         items = Q.leaves(node),
         done = items.filter((s) => s.done).length,
         symbol = ["◇", "○", "—"][Math.min(depth, 2)];
@@ -42,7 +46,7 @@ function renderSteps(steps, depth = 0) {
         groupClass: group ? "step-group" : "",
         id: esc(node.id),
         depth: depth,
-        marker: group
+        marker: inactive ? '<span class="marker" aria-hidden="true">–</span>' : group
           ? Templates.groupCompletion({
               id: esc(node.id),
               pressed: node.finalized === true,
@@ -57,16 +61,16 @@ function renderSteps(steps, depth = 0) {
           ? `<button class="icon" data-collapse="${esc(node.id)}" aria-expanded="${!node.collapsed}" aria-label="${node.collapsed ? "Розгорнути" : "Згорнути"}: ${esc(node.name)}">${node.collapsed ? "▸" : "▾"}</button>`
           : "",
         name: esc(node.name),
-        meta: group
+        meta: inactive ? (node.inactive ? "Неактуально" : "У неактуальній задачі") : group
           ? `${done} / ${items.length} дій · ${Q.earned(node)} / ${node.xp} XP`
           : `${node.minutes} хв · ${node.xp} XP${node.done ? " · втілено" : ""}`,
         courseAward:
           node.kind === "course" && Q.isDone(node)
             ? '<div class="course-award">✦ Відзнака за завершений курс</div>'
             : "",
-        tools: tools(node, index, steps.length, depth),
+        tools: tools(node, index, steps.length, depth, inactive),
         children: group
-          ? `<div class="group-progress"><div class="meter"><div style="width:${Math.round((done / items.length) * 100)}%"></div></div></div>${node.collapsed ? "" : `<ul class="step-children">${renderSteps(node.children, depth + 1)}</ul>`}`
+          ? `<div class="group-progress"><div class="meter"><div style="width:${Math.round((done / items.length) * 100)}%"></div></div></div>${node.collapsed ? "" : `<ul class="step-children">${renderSteps(node.children, depth + 1, inactiveIds)}</ul>`}`
           : "",
       });
     })
@@ -151,8 +155,10 @@ function render() {
                 .join(""),
               timerLabel: interval && timerStep === next.id ? "Пауза" : "Почати сет",
             })
-          : items.length
+          : Q.missionDone(m)
             ? `<div class="next"><div class="eyebrow">Місію завершено ✧</div><h3>Цю вершину взято!</h3><p>Поміть, що змінилося завдяки твоїм діям.</p><button class="primary" id="celebrate">Відсвяткувати ✨</button></div>`
+            : items.length
+            ? `<div class="next"><h3>Немає актуальних наступних дій</h3><p>Переглянь план або поверни крок у роботу.</p></div>`
             : `<div class="next"><h3>Перший крок до нової вершини</h3><p>Додай крок або створи серію лекцій.</p></div>`,
         steps: renderSteps(m.steps),
       })

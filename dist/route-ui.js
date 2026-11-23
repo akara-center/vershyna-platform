@@ -4,6 +4,8 @@ function renderRoute({ show, data, openProject }) {
   const current = data();
   const { vision } = current;
   const goals = Route.goals(current);
+  const completed = new Set(current.completions.filter((row) => row.kind === "milestone" && !row.reversedAt)
+    .map((row) => row.id));
   const visibleVision = Object.fromEntries(Object.keys(Route.visionLabels)
     .filter((key) => vision[key]).map((key) => [key, vision[key]]));
   const field = (key, label, value, required = false) =>
@@ -39,7 +41,9 @@ function renderRoute({ show, data, openProject }) {
       ${projectList(goal.projectIds)}
       ${goal.milestones.map((item, subIndex) => `<section class="route-milestone">
         <div class="route-heading"><h4>${esc(item.name)}</h4><button data-edit-result="${index}" data-result="${subIndex}" aria-label="Редагувати результат: ${esc(item.name)}">Редагувати</button></div>
-        ${projectList(item.projectIds)}</section>`).join("")}
+        ${projectList(item.projectIds)}
+        <button type="button" data-complete-result="${index}" data-result="${subIndex}"
+          aria-pressed="${completed.has(item.id)}">${completed.has(item.id) ? "✓ Досягнуто" : "Позначити досягнутим"}</button></section>`).join("")}
       <button type="button" data-add-result="${index}">Додати проміжний результат</button></article>`).join("")}
     </section><section class="card pilot-card"><h2>Попередні версії</h2>
     ${[...current.revisions].reverse().map((revision) => `<details><summary>${backupStamp(revision.at)}</summary>
@@ -130,6 +134,27 @@ function renderRoute({ show, data, openProject }) {
       [key, value.trim()]).filter(([, value]) => value));
     saveRoute(next, goals, "#vision-form button");
   };
+  $$("[data-complete-result]").forEach((button) => button.onclick = () => {
+    const goal = goals[Number(button.dataset.completeResult)];
+    const item = goal.milestones[Number(button.dataset.result)];
+    const at = new Date().toISOString();
+    const completions = structuredClone(current.completions);
+    const previous = [...completions].reverse().find((row) =>
+      row.kind === "milestone" && row.id === item.id && !row.reversedAt);
+    if (previous) previous.reversedAt = at;
+    else completions.push({ id: item.id, kind: "milestone", project: goal.name, name: item.name, at });
+    const original = state.pilot;
+    state.pilot = { ...current, completions };
+    if (!save()) {
+      state.pilot = original;
+      return;
+    }
+    current.completions = completions;
+    state.pilot = current;
+    button.setAttribute("aria-pressed", String(!previous));
+    button.textContent = previous ? "Позначити досягнутим" : "✓ Досягнуто";
+    toast(previous ? "Досягнення скасовано." : "Проміжний результат зафіксовано.");
+  });
   $("#add-route-goal").onclick = () => edit(-1);
   $$("[data-edit-goal]").forEach((button) => button.onclick = () => edit(Number(button.dataset.editGoal)));
   $$("[data-add-result]").forEach((button) => button.onclick = () => edit(Number(button.dataset.addResult), -1));

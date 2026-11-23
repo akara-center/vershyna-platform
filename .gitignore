@@ -6,3 +6,5 @@
 
 .browser-check/
 .openai/
+
+!dist/example-coach-route.json

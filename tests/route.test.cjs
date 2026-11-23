@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 const context = vm.createContext({});
-vm.runInContext(["route.js", "pilot-core.js"]
+vm.runInContext(["route.js", "coach-package.js", "pilot-core.js"]
   .map((name) => fs.readFileSync("dist/" + name, "utf8")).join("\n"), context);
 const { Route, Pilot } = vm.runInContext("({ Route, Pilot })", context);
 
