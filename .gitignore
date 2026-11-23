@@ -8,3 +8,8 @@
 .openai/
 
 !dist/example-coach-route.json
+
+/var/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

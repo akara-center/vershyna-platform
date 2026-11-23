@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Акаунт · Вершина 2.0</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/pilot.css">
+</head>
+<body>
+  <header><div class="brand"><span>△</span> ВЕРШИНА 2.0</div><a href="/">Відкрити трекер</a></header>
+  <main>
+    <h1>Резервна копія в акаунті</h1>
+    <section class="card pilot-card">
+      <form id="login" hidden>
+        <label>Ключ доступу<input name="key" type="password" required minlength="43" maxlength="43"></label>
+        <button>Увійти</button>
+      </form>
+      <div id="workspace" hidden>
+        <p id="account-info"></p>
+        <div class="pilot-actions">
+          <button type="button" id="reload">Оновити стан</button>
+          <button type="button" id="download">Завантажити копію з акаунта</button>
+          <button type="button" id="logout">Вийти</button>
+        </div>
+        <p>Збережи копію через «Дані» у трекері, а потім вибери файл тут. На іншому пристрої завантаж копію з акаунта й відкрий через імпорт у «Дані».</p>
+        <form id="upload">
+          <label>Копія трекера<input name="file" type="file" accept=".json,application/json" required></label>
+          <button>Зберегти копію в акаунті</button>
+        </form>
+      </div>
+      <p id="status" role="status"></p>
+    </section>
+  </main>
+  <script src="/account.js" defer></script>
+</body>
+</html>
