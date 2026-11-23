@@ -81,8 +81,9 @@ async function run() {
     await second.getByRole("button", { name: /Активний · test-coach/ }).click();
     await second.getByRole("heading", { name: "Активна співпраця" }).waitFor();
     await second.getByText("Видимість блоків для коуча").click();
-    const project = second.locator("section").filter({ has: second.getByRole("heading", { name: "Тестовий проєкт", exact: true }) });
-    await project.locator("h4").filter({ hasText: "Тестовий проєкт" }).locator("..").getByRole("button", { name: "Закрити блок" }).click();
+    const project = second.getByRole("heading", { name: "Тестовий проєкт", exact: true }).locator("..");
+    await project.getByRole("button", { name: "Закрити блок" }).click();
+    await project.getByRole("button", { name: "Відкрити блок" }).waitFor();
     await coach.reload();
     await coach.getByRole("button", { name: /Активний · test-client/ }).click();
     await coach.getByRole("heading", { name: "Активна співпраця" }).waitFor();

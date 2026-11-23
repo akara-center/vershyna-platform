@@ -1,5 +1,7 @@
 name: Server checks
 on:
+  push:
+    branches: [main, vershyna/hosting-prep]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -17,5 +19,6 @@ jobs:
       - run: node scripts/check-syntax.cjs
       - run: node --test tests/*.test.cjs
       - run: npm install --prefix "$RUNNER_TEMP/vershyna-browser" --no-package-lock playwright@1.56.1
-      - run: "$RUNNER_TEMP/vershyna-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - run: |
+          "$RUNNER_TEMP/vershyna-browser/node_modules/.bin/playwright" install --with-deps chromium
       - run: VERSHYNA_PLAYWRIGHT="$RUNNER_TEMP/vershyna-browser/node_modules/playwright" node scripts/check-browser.cjs
