@@ -5,7 +5,7 @@ const Pilot = (() => {
     version: 1, vision: {}, revisions: [], completions: [], indicators: [], reports: [],
   });
 
-  const visionFields = ["future", "present", "values", "qualities", "goal", "criteria", "milestones", "image", "project"];
+  const visionFields = [...Object.keys(Route.visionLabels), "goal", "criteria", "milestones", "project"];
   const text = (value) => typeof value === "string";
   const day = (value) => text(value) && /^\d{4}-\d{2}-\d{2}$/.test(value);
   const stamp = (value) => text(value) && Number.isFinite(Date.parse(value));
@@ -15,7 +15,9 @@ const Pilot = (() => {
   function validate(value) {
     if (value === undefined) return;
     if (!value || value.version !== 1 || !validVision(value.vision) ||
-        !Array.isArray(value.revisions) || !value.revisions.every((r) => r && stamp(r.at) && validVision(r.vision)) ||
+        !Route.valid(value.goals) ||
+        !Array.isArray(value.revisions) || !value.revisions.every((r) =>
+          r && stamp(r.at) && validVision(r.vision) && Route.valid(r.goals) && Route.validNames(r.projectNames)) ||
         !Array.isArray(value.completions) || !value.completions.every((r) => r &&
           text(r.id) && text(r.project) && text(r.name) && (!r.planned || day(r.planned)) && stamp(r.at) && (!r.reversedAt || stamp(r.reversedAt))) ||
         !Array.isArray(value.indicators) || !value.indicators.every((r) => r &&

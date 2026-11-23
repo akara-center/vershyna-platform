@@ -4,16 +4,6 @@ if (document.getElementById?.("pilot-nav")) {
   const panel = $("#pilot-page");
   const data = () => state.pilot ??= Pilot.empty();
   const dateLabel = (value) => value.split("-").reverse().join(".");
-  const labels = {
-    future: "Я і моє майбутнє",
-    present: "Точка А · ситуація, ресурси й опори",
-    values: "Цінності й сенси",
-    qualities: "Якості, навички й стан",
-    goal: "Велика мета",
-    criteria: "Як я помічу результат",
-    milestones: "Проміжні результати",
-    image: "Мій образ або метафора",
-  };
   let page = "day";
   const show = (heading, content) => {
     panel.innerHTML = `<div class="pilot-title"><h1>${heading}</h1></div>${content}`;
@@ -27,7 +17,10 @@ if (document.getElementById?.("pilot-nav")) {
     });
     $("#pilot-day").hidden = page !== "day";
     panel.hidden = page === "day";
-    if (page === "day") showIndicators();
+    if (page === "day") {
+      showPersona();
+      showIndicators();
+    }
     if (page === "path") showPath();
     if (page === "progress") showProgress();
     if (page === "coach") showCoach();
@@ -40,37 +33,25 @@ if (document.getElementById?.("pilot-nav")) {
   }
 
   function showPath() {
-    const { vision } = data();
-    show("Мій шлях", `<form class="card pilot-card" id="vision-form">
-      <div class="pilot-grid">${Object.entries(labels).map(([name, label]) =>
-        `<label>${label}<textarea name="${name}" rows="3" maxlength="2000">${esc(vision[name])}</textarea></label>`).join("")}</div>
-      <label>Пов’язаний проєкт<select name="project">
-        <option value="">Без прив’язки</option>
-        ${state.missions.map((m) => `<option value="${esc(m.id)}" ${vision.project === m.id ? "selected" : ""}>${esc(m.name)}</option>`).join("")}
-      </select></label>
-      <div class="pilot-actions"><button class="primary">Зберегти бачення</button>
-      <button type="button" id="open-linked" ${state.missions.some((m) => m.id === vision.project && !m.archived) ? "" : "hidden"}>Відкрити проєкт</button></div>
-      </form><section class="card pilot-card"><h2>Попередні версії</h2>
-      ${[...data().revisions].reverse().map((revision) => `<details><summary>${backupStamp(revision.at)}</summary>
-        <dl>${Object.entries(labels).filter(([key]) => revision.vision[key]).map(([key, label]) =>
-          `<dt>${label}</dt><dd>${esc(revision.vision[key])}</dd>`).join("")}</dl></details>`).join("") || "<p>Історія з’явиться після редагування бачення.</p>"}</section>`);
-    $("#vision-form").onsubmit = (event) => {
-      event.preventDefault();
-      const next = Object.fromEntries([...new FormData(event.target)]
-        .map(([key, value]) => [key, value.trim()]).filter(([, value]) => value));
-      if (JSON.stringify(next) === JSON.stringify(vision)) return;
-      if (Object.keys(vision).length) data().revisions.push({ at: new Date().toISOString(), vision });
-      data().vision = next;
-      if (save()) toast("Бачення збережено.");
-      showPath();
-    };
-    $("#open-linked").onclick = () => {
+    renderRoute({ show, data, openProject(id) {
+      const project = state.missions.find((item) => item.id === id);
+      if (!project) return;
+      if (project.archived) {
+        viewArchive(id);
+        return;
+      }
       resetTimer();
-      state.active = vision.project;
+      state.active = id;
       save();
       render();
       navigate("day");
-    };
+    } });
+  }
+
+  function showPersona() {
+    const { persona, image } = data().vision;
+    $("#heroName").textContent = persona || "Провідниця світла";
+    $("#heroDescription").textContent = image || "Ясність · вплив · втілення";
   }
 
   function showIndicators() {
