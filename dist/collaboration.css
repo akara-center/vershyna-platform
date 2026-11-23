@@ -10,3 +10,11 @@
 .collab-unread { border-left: 3px solid #e7bf7b; padding-left: .65rem; }
 .collaboration input[type="checkbox"] { width: 1rem; height: 1rem; }
 .collaboration select { max-width: 100%; }
+
+.collab-jump { justify-self: start; padding-block: .25rem; }
+.collab-row[id^="block-"] { scroll-margin: 5rem 1rem; }
+.collab-row[id^="block-"]:target, .collab-destination {
+  outline: 2px solid #e7bf7b;
+  outline-offset: .4rem;
+  border-radius: .25rem;
+}

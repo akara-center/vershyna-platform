@@ -10,6 +10,13 @@ const Collaboration = (() => {
   const current = (state) => state.contracts.at(-1);
   const itemById = (t, id) => t.blocks.find((item) => item.id === id);
   const active = (state) => current(state)?.status === "active";
+  const clientCanUse = (state) => state.clientBlocked !== true;
+
+  function setClientAccess(state, role, enabled) {
+    need(role === "coach", "Цю дію може виконати лише коуч.");
+    need(typeof enabled === "boolean", "Некоректний стан доступу.");
+    state.clientBlocked = !enabled;
+  }
   const clear = (text) => String(text ?? "").trim().slice(0, 2000);
 
   function scope(t, block) {
@@ -31,6 +38,7 @@ const Collaboration = (() => {
 
   function change(state, role, input, at) {
     need(roles.includes(role), "Невідома роль.");
+    need(role !== "client" || clientCanUse(state), "Доступ клієнта до трекера заблоковано.");
     const t = tracker(state, role === "coach" ? current(state)?.trackerId : input.trackerId);
     need(t, "Трекер недоступний.");
     const item = itemById(t, input.id);
@@ -100,6 +108,7 @@ const Collaboration = (() => {
   }
 
   function decide(state, proposalId, ids, at) {
+    need(clientCanUse(state), "Доступ клієнта до трекера заблоковано.");
     const updated = structuredClone(state);
     const contract = current(updated);
     const t = tracker(updated, contract?.trackerId);
@@ -124,6 +133,7 @@ const Collaboration = (() => {
 
   function message(state, role, proposalId, text) {
     need(active(state) && roles.includes(role), "Співпраця неактивна.");
+    need(role !== "client" || clientCanUse(state), "Доступ клієнта до трекера заблоковано.");
     const proposal = state.proposals.find((row) => row.id === proposalId && row.contractId === current(state).id);
     const t = tracker(state, current(state).trackerId);
     const body = clear(text);
@@ -187,6 +197,6 @@ const Collaboration = (() => {
     };
   }
 
-  return { tracker, current, active, scope, allowed, change, propose, decide, message, coachView, finish, start, diff };
+  return { tracker, current, active, clientCanUse, setClientAccess, scope, allowed, change, propose, decide, message, coachView, finish, start, diff };
 })();
 if (typeof module !== "undefined" && module.exports) module.exports = Collaboration;

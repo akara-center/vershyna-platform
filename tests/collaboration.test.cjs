@@ -64,3 +64,21 @@ test("Завершення забирає спільний доступ, нов�
   assert.equal(C.tracker(state, "tracker").blocks.at(-1).text, "four walks");
   assert.deepEqual(C.coachView(state).events, []);
 });
+
+test("Коуч блокує доступ клієнта окремо від контракту й відновлює його зі збереженням даних", () => {
+  const state = start();
+  C.propose(state, "proposal", [{ id: "goal", text: "three walks" }]);
+  assert.throws(() => C.setClientAccess(state, "client", false), /лише коуч/);
+  C.setClientAccess(state, "coach", false);
+  assert.equal(C.clientCanUse(state), false);
+  assert.equal(C.active(state), true);
+  assert.throws(() => edit(state, "client", "goal", "two walks"), /заблоковано/);
+  assert.throws(() => C.decide(state, "proposal", ["goal"], at), /заблоковано/);
+  assert.throws(() => C.message(state, "client", "proposal", "Коли?"), /заблоковано/);
+  C.finish(state);
+  C.start(state, { id: "second", trackerId: "new", initial: true });
+  assert.equal(C.clientCanUse(state), false);
+  C.setClientAccess(state, "coach", true);
+  assert.equal(C.clientCanUse(state), true);
+  assert.equal(C.tracker(state, "tracker").blocks.at(-1).text, "one walk");
+});

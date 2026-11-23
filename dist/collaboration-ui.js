@@ -50,6 +50,11 @@ function highlighted(before, after) {
 }
 
 function render() {
+  if (role === "client" && !C.clientCanUse(store)) {
+    $("#collab-view").innerHTML = `<section class="card pilot-card">
+      <h2>Доступ до трекера заблоковано</h2><p>Доступ може відновити коуч.</p></section>`;
+    return;
+  }
   const contract = C.current(store);
   const t = C.tracker(store, role === "coach" ? contract.trackerId : store.trackerId);
   const active = C.active(store) && contract.trackerId === t.id;
@@ -66,15 +71,18 @@ function render() {
       <strong>${!contract.read.includes(event.seq) ? "Нове · " : ""}${operations[event.operation]} · ${esc(event.label)}</strong>
       <time datetime="${esc(event.at)}" class="note">${format.format(new Date(event.at))}</time>
       <div class="collab-diff">${highlighted(event.before, event.after)}</div>
-      ${byId.has(event.blockId) ? `<button type="button" data-jump="${esc(event.blockId)}">Відкрити блок</button>` : ""}
+      ${byId.has(event.blockId) ? `<a class="collab-jump" href="#block-${encodeURIComponent(event.blockId)}" data-jump="${esc(event.blockId)}">Відкрити блок</a>` : ""}
     </article>`).join("")}` : "<p>Нових видимих змін поки немає.</p>"}</section>`;
 
   const blockList = `<section class="card pilot-card"><h2>${role === "client" ? "Мої блоки" : "Відкриті блоки клієнта"}</h2>
+    ${role === "client" ? '<p class="note">Приватний блок і його підблоки видно тобі. Коуч не бачить їхнього вмісту та правок, доки ти знову не відкриєш доступ.</p>' : ""}
     ${blocks.map((item) => {
       const hidden = t.private.includes(item.id);
+      const inherited = !hidden && role === "client" && C.scope(t, item).some((id) => t.private.includes(id));
       const canEdit = role === "client" || contract.phase === "setup";
-      return `<article class="collab-row" id="block-${esc(item.id)}" tabindex="-1"><h3>${esc(item.label)}</h3>
+      return `<article class="collab-row" id="block-${esc(item.id)}"><h3 tabindex="-1">${esc(item.label)}</h3>
         ${byId.has(item.parent) ? `<p class="note">У блоці «${esc(byId.get(item.parent).label)}»</p>` : ""}
+        ${role === "client" && (hidden || inherited) ? `<p class="note">${hidden ? "Приватний блок" : "Приховано разом із батьківським блоком"}</p>` : ""}
         <p class="collab-text">${esc(item.text)}</p>
         ${canEdit ? `<form data-block-form="${esc(item.id)}"><label>Текст блока<textarea name="text" rows="2" required maxlength="2000">${esc(item.text)}</textarea></label>
         <div class="pilot-actions"><button>Зберегти текст</button></div></form>` : ""}
@@ -114,7 +122,15 @@ function render() {
     <button>Зберегти нотатку</button></form><button type="button" data-remove-note="${esc(row.id)}">Видалити нотатку</button></div>`).join("")}
     <form id="collab-note"><label>Нова приватна нотатка<textarea name="text" rows="2" maxlength="2000" required></textarea></label><button>Додати нотатку</button></form></section>`;
 
-  const lifecycle = `<section class="card pilot-card"><h2>Доступ до трекера</h2>
+  const clientAccess = role === "coach" ? `<section class="card pilot-card">
+    <h2>Доступ клієнта до трекера</h2><p>${C.clientCanUse(store) ? "Доступ дозволено" : "Доступ заблоковано"}</p>
+    ${C.clientCanUse(store) ? `<details id="collab-block-client">
+      <summary>Заблокувати доступ клієнта</summary>
+      <p>Клієнт втратить можливість відкрити й редагувати свої трекери в демо. Дані збережуться. Доступ можна відновити.</p>
+      <button type="button" id="collab-confirm-block">Підтвердити блокування</button></details>` :
+      '<button type="button" id="collab-unblock-client">Відновити доступ клієнта</button>'}</section>` : "";
+
+  const lifecycle = `<section class="card pilot-card"><h2>Спільний доступ</h2>
     <p>${active ? (contract.phase === "setup" ? "Перше налаштування" : "Співпраця активна") : "Доступ коуча закрито"}</p>
     ${role === "coach" && active && contract.phase === "setup" ? '<button type="button" id="collab-publish">Передати налаштований трекер</button>' : ""}
     ${active ? '<button type="button" id="collab-finish">Закрити спільний доступ</button>' : ""}
@@ -127,7 +143,7 @@ function render() {
       ${store.trackers.map((item, index) => `<option value="${esc(item.id)}" ${t.id === item.id ? "selected" : ""}>Трекер ${index + 1}</option>`).join("")}</select></label>` : ""}</section>`;
 
   $("#collab-view").innerHTML = role === "coach"
-    ? feed + blockList + proposalsSection + notes + lifecycle
+    ? feed + clientAccess + blockList + proposalsSection + notes + lifecycle
     : blockList + proposalsSection + lifecycle;
   bind(t);
 }
@@ -146,11 +162,21 @@ function bind(t) {
     const contract = C.current(draft);
     contract.read = [...new Set([...contract.read, ...C.coachView(draft).events.map((event) => event.seq)])];
   }, "Видимі зміни позначено переглянутими."));
-  click("[data-jump]", ({ jump }) => {
-    const target = document.getElementById("block-" + jump);
-    target?.focus();
-    target?.scrollIntoView({ block: "nearest" });
+  $$("[data-jump]").forEach((link) => link.onclick = (event) => {
+    const target = document.getElementById("block-" + link.dataset.jump);
+    if (!target) return;
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    $(".collab-destination")?.classList.remove("collab-destination");
+    target.classList.add("collab-destination");
+    target.querySelector("h3").focus({ preventScroll: true });
+    target.scrollIntoView({ block: "center" });
+    history.replaceState(null, "", link.hash);
   });
+  click("#collab-confirm-block", () => commit((draft) => C.setClientAccess(draft, role, false),
+    "Доступ клієнта заблоковано. Записи збережено."));
+  click("#collab-unblock-client", () => commit((draft) => C.setClientAccess(draft, role, true),
+    "Доступ клієнта відновлено."));
   form("[data-block-form]", (fields, { blockForm }) => commit((draft) => {
     C.change(draft, role, { op: "edit", trackerId: t.id, id: blockForm, text: fields.get("text") }, now());
   }));
