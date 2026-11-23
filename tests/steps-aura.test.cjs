@@ -1,0 +1,33 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+require('../dist/quest-core.js');
+const {copyStep, moveStep, auraState} = globalThis.QuestCore;
+const original = {id:'one',name:'Лекція 1',result:'Нотатки',minutes:25,done:true,completedAt:'old',timer:100,rewardClaimed:true};
+const copy = copyStep(original,'two');
+assert.deepEqual(copy,{id:'two',name:'Лекція 1',result:'Нотатки',minutes:25,done:false});
+copy.name='Лекція 2';
+assert.equal(original.name,'Лекція 1');
+const steps=[original,copy];
+assert.equal(moveStep(steps,'two',-1),true);
+assert.equal(steps[0],copy);
+assert.equal(steps.filter(s=>s.done).length,1);
+assert.equal(moveStep(steps,'two',-1),false);
+assert.equal(moveStep(steps,'missing',1),false);
+assert.equal(moveStep(steps,'one',0),false);
+assert.deepEqual(JSON.parse(JSON.stringify(steps)),[copy,original]);
+const start=auraState(0,0), rank=auraState(200,0), award=auraState(0,1), strong=auraState(10000,100);
+assert.ok(rank.radius>start.radius && rank.glowOpacity>start.glowOpacity);
+assert.ok(award.ringOpacity>start.ringOpacity);
+assert.ok(strong.radius<=104 && strong.glowOpacity<=1 && strong.rayOpacity<=1);
+assert.deepEqual(auraState(0,0),start);
+// Execute the existing migration against a saved progress fixture, then ensure
+// the new controls do not require a destructive schema migration.
+const migration=fs.readFileSync('dist/initial.js','utf8');
+const sandbox={structuredClone}; vm.createContext(sandbox);
+vm.runInContext(migration+';globalThis.migrate=migrateState;',sandbox);
+const fixture={schemaVersion:3,active:'custom',theme:'light',missions:[{id:'custom',name:'Моє',goal:'Мій результат',steps:[original,copy]}]};
+const before=JSON.stringify(fixture);
+assert.equal(JSON.stringify(sandbox.migrate(fixture)),before);
+assert.equal(JSON.stringify(sandbox.migrate(fixture)),before);
+console.log('Passed: independent copies, reward preservation, order boundaries, JSON persistence, aura progression and existing-progress preservation.');

@@ -1,0 +1,8 @@
+*.json
+!package.json
+*.zip
+*.bundle
+.DS_Store
+
+.browser-check/
+.openai/

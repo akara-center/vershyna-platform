@@ -1,0 +1,320 @@
+<!doctype html><meta charset="utf-8" /><title>Вершина — контроль до / після</title>
+<style>
+  body {
+    font: 16px system-ui;
+    background: #eee;
+    margin: 20px;
+  }
+  button {
+    padding: 12px;
+    margin: 8px;
+  }
+  #frames {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+  }
+  iframe {
+    border: 1px solid #888;
+    height: 900px;
+    background: #11121d;
+  }
+  pre {
+    white-space: pre-wrap;
+  }
+  h2 {
+    font-size: 18px;
+  }
+</style>
+<h1>Контроль Вершини до / після впорядкування</h1>
+<button id="run">Перевірити всі сценарії</button>
+<p id="status">Готово до запуску</p>
+<pre id="results"></pre>
+<div id="frames"></div>
+<script>
+  const fixture = {
+    schemaVersion: 4,
+    theme: "dark",
+    active: "qa",
+    missions: [
+      {
+        id: "qa",
+        name: "Контрольна місія з довгою назвою для перевірки верстки",
+        goal: "Збереження вигляду й поведінки під час упорядкування коду.",
+        steps: [
+          {
+            id: "group",
+            name: "Вкладена задача з довгою назвою",
+            result: "Перевірити структуру",
+            minutes: 10,
+            xp: 50,
+            done: false,
+            children: [
+              {
+                id: "done",
+                name: "Виконаний підкрок",
+                result: "Готово",
+                minutes: 10,
+                xp: 25,
+                done: true,
+              },
+              {
+                id: "next",
+                name: "Наступний підкрок із довгою назвою для вузького екрана",
+                result: "Перевірити збереження",
+                minutes: 15,
+                xp: 25,
+                done: false,
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const results = [];
+  const frames = document.querySelector("#frames");
+  async function loadPair(width, light, seed = fixture) {
+    frames.innerHTML = "";
+    const pair = [];
+    for (const version of ["baseline", "candidate"]) {
+      localStorage.setItem("vershyna-platform-v1", JSON.stringify(seed));
+      localStorage.setItem("vershyna-platform-v1-github-backup-reset-v1", "1");
+      const col = document.createElement("div");
+      col.innerHTML =
+        "<h2>" + version + " · " + width + " px · " + (light ? "світла" : "темна") + "</h2>";
+      const f = document.createElement("iframe");
+      f.width = width;
+      col.append(f);
+      frames.append(col);
+      await new Promise((resolve) => {
+        f.onload = resolve;
+        f.src = version + "/index.html";
+      });
+      const d = f.contentDocument;
+      await d.fonts.ready;
+      assert(!d.querySelector("#toast").textContent.startsWith("Не вдалося"), "Fixture failed startup: " + d.querySelector("#toast").textContent);
+      d.body.classList.toggle("light", light);
+      const style = d.createElement("style");
+      style.textContent =
+        "*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}";
+      d.head.append(style);
+      pair.push(f);
+    }
+    return pair;
+  }
+  function view(f) {
+    const w = f.contentWindow,
+      d = f.contentDocument;
+    // Each iframe must be active when comparing :focus-visible styles.
+    w.focus();
+    return {
+      text: d.body.innerText.replace(/\s+/g, " ").trim(),
+      nodes: [...d.body.querySelectorAll("*")]
+        .filter((e) => !["SCRIPT", "STYLE", "LINK"].includes(e.tagName))
+        .map((e) => {
+          const r = e.getBoundingClientRect(),
+            s = w.getComputedStyle(e);
+          return {
+            tag: e.tagName,
+            id: e.id,
+            cl: e.getAttribute("class"),
+            r: [r.x, r.y, r.width, r.height].map((n) => Math.round(n * 100) / 100),
+            value: ["INPUT", "TEXTAREA", "SELECT"].includes(e.tagName) ? e.value : null,
+            css: [...s].map((name) => [name, s.getPropertyValue(name)]),
+          };
+        }),
+    };
+  }
+  function compare(a, b, label) {
+    const av = view(a),
+      bv = view(b);
+    if (JSON.stringify(av) !== JSON.stringify(bv)) {
+      let at = av.nodes.findIndex((x, i) => JSON.stringify(x) !== JSON.stringify(bv.nodes[i]));
+      throw Error(
+        label +
+          " differs: " +
+          JSON.stringify({
+            at,
+            before: av.nodes[at],
+            after: bv.nodes[at],
+            textSame: av.text === bv.text,
+          }),
+      );
+    }
+    results.push(
+      label +
+        ": identical rendered text, geometry and computed styles (" +
+        av.nodes.length +
+        " elements)",
+    );
+  }
+  function click(f, selector) {
+    const e = f.contentDocument.querySelector(selector);
+    if (!e) throw Error("Missing " + selector);
+    e.click();
+  }
+  function assert(v, message) {
+    if (!v) throw Error(message);
+  }
+  function outside(f) {
+    const w = f.contentWindow,
+      d = f.contentDocument,
+      dialog = d.querySelector("#modal");
+    dialog.dispatchEvent(
+      new w.PointerEvent("pointerdown", { bubbles: true, clientX: 1, clientY: 1, pointerId: 1 }),
+    );
+    dialog.dispatchEvent(
+      new w.PointerEvent("pointerup", { bubbles: true, clientX: 1, clientY: 1, pointerId: 1 }),
+    );
+    assert(!dialog.open, "Backdrop did not close");
+  }
+  async function behavior(f) {
+    const d = f.contentDocument,
+      w = f.contentWindow;
+    click(f, '[data-menu="next"]');
+    assert(
+      !d.querySelector('[data-delete="next"]').parentElement.hidden,
+      "Delete missing from menu",
+    );
+    click(f, '[data-delete="next"]');
+    assert(d.querySelector("#modal").open, "Delete dialog not open");
+    outside(f);
+    assert(d.querySelector('[data-step-id="next"]'), "Backdrop deleted task");
+    click(f, '[data-menu="next"]');
+    click(f, '[data-edit="next"]');
+    assert(!d.querySelector("#deleteStep"), "Delete still in editor");
+    outside(f);
+    click(f, "#startTimer");
+    assert(d.querySelector("#startTimer").textContent === "Пауза", "Timer did not start");
+    assert(d.querySelector("#xp").textContent === "25 / 200 XP", "Timer awarded XP");
+    click(f, "#startTimer");
+    assert(d.querySelector("#startTimer").textContent === "Почати сет", "Timer did not pause");
+    click(f, '[data-toggle="next"]');
+    assert(d.querySelector("#xp").textContent === "50 / 200 XP", "Incorrect XP after toggle");
+    click(f, '[data-toggle="next"]');
+    assert(d.querySelector("#xp").textContent === "25 / 200 XP", "Incorrect XP after undo");
+    click(f, '[data-finalize="group"]');
+    assert(d.querySelector("#xp").textContent === "50 / 200 XP", "Group completion XP");
+    click(f, '[data-finalize="group"]');
+    assert(d.querySelector("#xp").textContent === "25 / 200 XP", "Group undo XP");
+    click(f, '[data-menu="next"]');
+    click(f, '[data-delete="next"]');
+    click(f, "#confirmRemoval");
+    assert(!d.querySelector('[data-step-id="next"]'), "Task not deleted");
+    click(f, "#openTrash");
+    click(f, "[data-trash-restore]");
+    assert(d.querySelector('[data-step-id="next"]'), "Task not restored");
+    assert(d.querySelector("#xp").textContent === "25 / 200 XP", "Restore duplicated XP");
+    click(f, "#archiveMission");
+    click(f, "#openArchive");
+    click(f, "[data-restore]");
+    assert(d.querySelector("#xp").textContent === "25 / 200 XP", "Archive changed XP");
+    click(f, "#settings");
+    assert(d.querySelector('a[download^="vershyna-backup-"]'), "Dated backup missing");
+    outside(f);
+    const stored = localStorage.getItem("vershyna-platform-v1");
+    assert(JSON.parse(stored).missions[0].steps[0].children.length === 2, "Stored tree wrong");
+    // JSON roundtrip through the actual import UI.
+    click(f, "#settings");
+    d.querySelector("#importText").value = stored;
+    click(f, "#readJSON");
+    click(f, "#confirmImport");
+    assert(d.querySelector("#xp").textContent === "25 / 200 XP", "Import changed XP");
+    await new Promise((resolve) => {
+      f.onload = resolve;
+      f.contentWindow.location.reload();
+    });
+    await f.contentDocument.fonts.ready;
+    assert(
+      f.contentDocument.querySelector("#xp").textContent === "25 / 200 XP",
+      "Reload lost progress",
+    );
+    results.push(
+      f.src.includes("baseline") ? "baseline behavior: PASS" : "candidate behavior: PASS",
+    );
+  }
+  document.querySelector("#run").onclick = async () => {
+    try {
+      results.length = 0;
+      document.querySelector("#status").textContent = "Виконується…";
+      for (const width of [340, 390, 420, 700, 900, 1280])
+        for (const light of [false, true]) {
+          const [a, b] = await loadPair(width, light);
+          compare(a, b, width + " / " + (light ? "light" : "dark"));
+          for (const f of [a, b]) click(f, '[data-menu="next"]');
+          compare(a, b, width + " menu");
+          for (const f of [a, b]) {
+            click(f, '[data-edit="next"]');
+          }
+          compare(a, b, width + " editor");
+          for (const f of [a, b]) outside(f);
+          for (const selector of [
+            "#addStep",
+            "#addSeries",
+            "#editMission",
+            "#moveMission",
+            "#openTrash",
+            "#openArchive",
+            "#checkin",
+            "#delegate",
+          ]) {
+            for (const f of [a, b]) click(f, selector);
+            compare(a, b, width + " " + (light ? "light" : "dark") + " " + selector);
+            for (const f of [a, b]) {
+              assert(f.contentDocument.querySelector("#modal").open, "Expected dialog " + selector);
+              outside(f);
+            }
+          }
+        }
+      const completed = structuredClone(fixture);
+      completed.missions[0].steps[0].children.forEach((s) => (s.done = true));
+      const course = structuredClone(fixture);
+      course.missions[0].steps[0].kind = "course";
+      course.missions[0].steps[0].children[1] = {
+        id: "lecture",
+        name: "Лекція з вкладеними діями",
+        result: "Вивчено",
+        kind: "lecture",
+        done: false,
+        xp: 25,
+        minutes: 10,
+        children: [
+          {
+            id: "watch",
+            name: "Переглянути <лекцію> & нотатки",
+            result: "Готово",
+            xp: 13,
+            minutes: 10,
+            done: false,
+          },
+          { id: "notes", name: "Нотатки", result: "Готово", xp: 12, minutes: 10, done: false },
+        ],
+      };
+      const archived = structuredClone(fixture);
+      archived.missions[0].archived = true;
+      for (const [label, seed] of [
+        ["empty", { schemaVersion: 4, theme: "dark", active: null, missions: [] }],
+        ["complete", completed],
+        ["course", course],
+        ["archived", archived],
+      ]) {
+        for (const width of [390, 1280])
+          for (const light of [false, true]) {
+            const [a, b] = await loadPair(width, light, seed);
+            compare(a, b, label + " " + width + " " + (light ? "light" : "dark"));
+          }
+      }
+      for (const version of ["baseline", "candidate"]) {
+        const pair = await loadPair(390, false);
+        await behavior(pair[version === "baseline" ? 0 : 1]);
+      }
+      await loadPair(390, false);
+      document.querySelector("#status").textContent = "PASS — усі сценарії";
+    } catch (e) {
+      document.querySelector("#status").textContent = "FAIL";
+      results.push(e.stack);
+    }
+    document.querySelector("#results").textContent = results.join("\n");
+  };
+</script>

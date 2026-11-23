@@ -1,0 +1,92 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');require('../dist/quest-core.js');
+const Q=QuestCore,step=(id,done=false)=>({id,name:id,result:id,minutes:10,xp:50,done});
+const fixture={schemaVersion:4,active:'m',missions:[{id:'m',name:'m',goal:'m',steps:[step('a',true),step('b',true)]}]};
+const data=new Map([['vershyna-platform-v1',JSON.stringify(fixture)]]), elements=new Map();
+function el(){return {textContent:'',innerHTML:'',style:{},classList:{add(){},remove(){},toggle(){}},setAttribute(){},remove(){},close(){},showModal(){}};}
+const ctx={matchMedia:()=>({matches:true}),QuestCore:Q,structuredClone,console,crypto,Date,setTimeout:()=>0,clearTimeout,clearInterval,confirm:()=>true,localStorage:{getItem:k=>data.get(k)||null,removeItem:k=>data.delete(k),setItem:(k,v)=>data.set(k,v)},document:{body:{classList:{toggle(){}}},querySelector:s=>{if(!elements.has(s))elements.set(s,el());return elements.get(s);},querySelectorAll:()=>[]}};
+vm.createContext(ctx);vm.runInContext(require('./helpers/app-source.cjs')(),ctx);
+const run=s=>vm.runInContext(s,ctx);
+run('archiveProject("m")');assert.equal(run('totalXP()'),100);assert.equal(run('mission()'),undefined);assert.ok(!elements.get('#tabs').innerHTML.includes('data-mission="m"'));assert.match(elements.get('#mission').innerHTML,/Немає активних/);
+assert.equal(JSON.parse(data.get('vershyna-platform-v1')).missions[0].archived,true);
+run('restoreProject("m")');assert.equal(run('totalXP()'),100);assert.equal(run('mission().id'),'m');
+run('deleteProject("m")');elements.get('#confirmRemoval').onclick();assert.equal(run('totalXP()'),0);assert.equal(run('state.missions.length'),0);Q.validate(JSON.parse(data.get('vershyna-platform-v1')));
+run('state=JSON.parse(localStorage.getItem(KEY+"-before-project-change"));render()');assert.equal(run('totalXP()'),100);
+ctx.localStorage.setItem=()=>{throw Error('quota');};run('archiveProject("m")');assert.equal(run('mission().id'),'m');assert.equal(run('totalXP()'),100);
+console.log('Passed: archive/restore XP invariant, last-project empty state, persistence, project deletion, recoverable backup and atomic storage failure.');
+run('state=structuredClone(initial);state.missions=[{id:"m",name:"m",goal:"m",steps:[{id:"first",name:"first",result:"",xp:10,minutes:10,done:false},{id:"course",name:"course",result:"",xp:50,minutes:10,collapsed:true,children:[{id:"lecture",name:"lecture",result:"",xp:50,minutes:10,collapsed:true,children:[{id:"done",name:"done",result:"",xp:25,minutes:10,done:true},{id:"todo",name:"todo",result:"",xp:25,minutes:10,done:false}]}]}]}];state.active="m";Q.normalize(state);render()');
+assert.match(run('renderSteps(mission().steps)'),/data-focus="course"/);
+assert.match(run('renderSteps(mission().steps[1].children)'),/data-focus="lecture"/);
+ctx.localStorage.setItem=(k,v)=>data.set(k,v);
+run('takeInWork("lecture")');
+assert.equal(run('mission().steps[0].id'),'course');
+assert.equal(run('mission().focusId'),'todo');
+assert.equal(run('nextStep().id'),'todo');
+assert.equal(run('mission().steps[0].collapsed'),false);
+assert.equal(run('mission().steps[0].children[0].collapsed'),false);
+ctx.localStorage.setItem=(k,v)=>data.set(k,v);
+run('archiveProject("m")');assert.equal(run('mission()'),undefined);assert.equal(run('totalXP()'),25);
+run('restoreProject("m")');assert.equal(run('nextStep().id'),'todo');assert.equal(run('totalXP()'),25);
+console.log('Passed: unfinished archive/restore and nested course/lecture focus, ancestor order, expansion and XP preservation.');
+// Automatic visual completion retains group/project positions until the title check is clicked.
+run('state={schemaVersion:4,active:"m",missions:[{id:"m",name:"m",goal:"m",steps:[{id:"g",name:"g",result:"g",minutes:10,xp:50,done:false,children:[{id:"leaf",name:"leaf",result:"leaf",minutes:10,xp:50,done:true}]},{id:"later",name:"later",result:"later",minutes:10,xp:10,done:false}]},{id:"other",name:"other",goal:"other",steps:[]}]};Q.normalize(state);render()');
+assert.equal(run('Q.isDone(mission().steps[0])'),true);
+assert.equal(run('nextStep().id'),'later');
+assert.equal(run('Q.ordered(mission().steps)[0].id'),'g');
+assert.ok(!run('renderSteps(mission().steps)').includes('Завершити задачу ✓'));
+assert.match(run('renderSteps(mission().steps)'),/data-finalize="g"/);
+const groupXP=run('totalXP()');
+run('finalize("g")');assert.equal(run('Q.ordered(mission().steps)[0].id'),'later');assert.equal(run('totalXP()'),groupXP);
+run('finalize("g")');assert.equal(run('Q.ordered(mission().steps)[0].id'),'g');
+run('mission().steps[1].done=true;updateParents();render()');
+assert.equal(run('Q.missionDone(mission())'),true);
+assert.ok(elements.get('#tabs').innerHTML.indexOf('data-mission="m"')<elements.get('#tabs').innerHTML.indexOf('data-mission="other"'));
+run('finalize("m")');assert.equal(run('mission().finalized'),true);
+assert.ok(elements.get('#tabs').innerHTML.indexOf('data-mission="other"')<elements.get('#tabs').innerHTML.indexOf('data-mission="m"'));
+run('mission().steps[0].children.push({id:"new",name:"new",result:"new",minutes:10,xp:0,done:false});updateParents();render()');
+assert.equal(run('Q.isDone(mission().steps[0])'),false);assert.equal(run('mission().finalized'),undefined);
+assert.equal(run('totalXP()'),groupXP+10);
+assert.ok(elements.get('#tabs').innerHTML.indexOf('data-mission="m"')<elements.get('#tabs').innerHTML.indexOf('data-mission="other"'));
+console.log('Passed: automatic strike-through, manual title checks, stable task/project positions, new-child reactivation, no parent XP duplication.');
+
+// Completing a lecture completes every descendant, with leaf XP counted once.
+run('state={schemaVersion:4,active:"m",missions:[{id:"m",name:"Course",goal:"Learn",steps:[{id:"lecture",name:"Lecture 3",result:"Learn",minutes:10,xp:25,done:false,children:[{id:"watch",name:"Watch",result:"Watch",minutes:30,xp:13,done:true},{id:"notes",name:"Notes",result:"Notes",minutes:30,xp:12,done:false}]},{id:"next",name:"Next",result:"Next",minutes:10,xp:10,done:false}]}]};Q.normalize(state);render()');
+run('mission().focusId="notes";finalize("lecture")');
+assert.equal(run('Q.find(mission().steps,"lecture").node.finalized'),true);
+assert.equal(run('Q.find(mission().steps,"notes").node.done'),true);
+assert.equal(run('totalXP()'),25);
+assert.equal(run('nextStep().id'),'next');
+assert.equal(run('mission().focusId'),undefined);
+run('state=Q.normalize(Q.validate(JSON.parse(localStorage.getItem(KEY))));render()');
+assert.equal(run('Q.find(mission().steps,"notes").node.done'),true);
+assert.equal(run('totalXP()'),25);
+run('finalize("lecture")');
+assert.equal(run('Q.find(mission().steps,"watch").node.done'),true);
+assert.equal(run('Q.find(mission().steps,"notes").node.done'),false);
+assert.equal(run('Q.find(mission().steps,"lecture").node.completionUndo'),undefined);
+assert.equal(run('totalXP()'),13);
+assert.equal(run('nextStep().id'),'notes');
+for(let i=0;i<20;i++){
+  run('finalize("lecture")');
+  assert.equal(run('Q.find(mission().steps,"lecture").node.completionUndo.length'),2);
+  assert.equal(run('totalXP()'),25);
+  run('finalize("lecture")');
+  assert.equal(run('totalXP()'),13);
+  assert.equal(run('Q.find(mission().steps,"lecture").node.completionUndo'),undefined);
+}
+run('finalize("lecture")');
+assert.equal(run('totalXP()'),25);
+console.log('Passed: lecture completion cascades to descendants, existing XP preserved, no double payout, next-action/focus cleanup and JSON roundtrip.');
+// Nested snapshots survive completing a whole course and JSON import.
+run('const lecture=mission().steps[0];mission().steps=[{id:"course",name:"Course",result:"Learn",minutes:10,xp:35,done:false,children:[lecture,{id:"last",name:"Last",result:"Last",minutes:10,xp:10,done:false}]}];finalize("course");state=Q.normalize(Q.validate(JSON.parse(localStorage.getItem(KEY))));finalize("course")');
+assert.equal(run('Q.find(mission().steps,"last").node.done'),false);
+assert.equal(run('Q.find(mission().steps,"lecture").node.finalized'),true);
+assert.equal(run('Q.find(mission().steps,"lecture").node.completionUndo.length'),2);
+run('finalize("lecture")');
+assert.equal(run('Q.find(mission().steps,"watch").node.done'),true);
+assert.equal(run('Q.find(mission().steps,"notes").node.done'),false);
+assert.equal(run('totalXP()'),13);
+// Old checked groups have no historical state to restore: preserve actual data.
+run('{const lecture=Q.find(mission().steps,"lecture").node;lecture.children.forEach(n=>n.done=true);lecture.finalized=true;delete lecture.completionUndo;finalize("lecture")}');
+assert.equal(run('totalXP()'),25);
+assert.throws(()=>run('const invalid=structuredClone(state);invalid.missions[0].steps[0].completionUndo=[{id:"x",done:"yes",finalized:false}];Q.validate(invalid)'),/копія стану/);
+console.log('Passed: exact partial undo after reload, bounded repeated snapshots, nested course/lecture undo, old data and invalid snapshot rejection.');

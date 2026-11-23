@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="uk"
+  ><head
+    ><meta charset="utf-8" /><meta
+      name="viewport"
+      content="width=device-width,initial-scale=1" /><meta
+      name="theme-color"
+      content="#18162b" /><link rel="icon" type="image/svg+xml" href="./icon.svg?v=1" /><link
+      rel="icon"
+      type="image/png"
+      sizes="192x192"
+      href="./icon-192.png?v=2" /><link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="./icon-180.png?v=1" /><link
+      rel="manifest"
+      href="./manifest.webmanifest?v=2"
+      crossorigin="use-credentials" /><meta
+      name="apple-mobile-web-app-title"
+      content="Вершина" /><title>Вершина 2.0</title
+    ><link rel="stylesheet" href="./styles.css?v=2"><link rel="stylesheet" href="./pilot.css" /></head
+  ><body
+    ><header
+      ><div class="brand"><span>△</span> ВЕРШИНА 2.0</div
+      ><div class="tools"
+        ><button class="ghost small" id="theme" aria-label="Змінити тему">☼</button
+        ><button class="ghost small" id="settings">Дані</button></div
+      ></header
+    ><main>
+      <nav id="pilot-nav" aria-label="Розділи Вершини">
+        <button type="button" data-page="day" aria-current="page">Мій день</button>
+        <button type="button" data-page="path">Мій шлях</button>
+        <button type="button" data-page="progress">Мій прогрес</button>
+        <button type="button" data-page="coach">Співпраця з коучем</button>
+      </nav>
+      <div id="pilot-page" hidden></div>
+      <div id="pilot-day">
+      <div class="intro"
+        ><div
+          ><div class="eyebrow">Маленькі дії · великі зміни</div
+          ><h1 id="greeting">Мій день</h1
+          ></div
+        ><div class="date" id="date"></div></div
+      ><div class="layout"
+        ><section
+          ><nav class="mission-tabs" id="tabs" aria-label="Місії"></nav
+          ><div class="card" id="mission"></div
+          ><p class="foot"
+            >Тут цінується реальний результат. Таймер допомагає обмежити зусилля, а завершення кроку
+            підтверджуєш ти. Після паузи просто продовжуй — накопичений прогрес залишається.</p
+          ></section
+        ><aside
+          ><div class="card hero-card"
+            ><div class="eyebrow">Твій герой</div
+            ><svg
+              viewBox="0 0 300 230"
+              role="img"
+              aria-label="Символічний образ провідниці світла на вершині гори"
+            >
+              <defs>
+                <radialGradient id="aura">
+                  <stop id="auraCenter" stop-color="#f4d697" stop-opacity=".3" />
+                  <stop offset="1" stop-color="#b49af5" stop-opacity="0" />
+                </radialGradient>
+                <linearGradient id="mount" x2="0" y2="1">
+                  <stop stop-color="#827094" />
+                  <stop offset="1" stop-color="#29283e" />
+                </linearGradient>
+              </defs>
+              <circle id="glow" cx="150" cy="91" r="83" fill="url(#aura)" />
+              <g id="auraRings" stroke="#bca1f0" opacity=".14" fill="none">
+                <circle cx="150" cy="91" r="54" />
+                <circle cx="150" cy="91" r="71" />
+                <path d="M150 9v25m0 116v25M68 91h23m118 0h23" />
+              </g>
+              <g id="auraRays" stroke="#f4d697" stroke-width="1.5" opacity="0">
+                <path
+                  d="M150 8v18m0 130v18M67 91h17m132 0h17M91 32l13 13m92 92 13 13M91 150l13-13m92-92 13-13"
+                />
+                <circle cx="150" cy="91" r="84" fill="none" stroke-dasharray="2 12" />
+              </g>
+              <g id="auraSparks" fill="#ffe9b9" opacity="0">
+                <path
+                  d="M114 25l2 5 5 2-5 2-2 5-2-5-5-2 5-2zM195 69l2 5 5 2-5 2-2 5-2-5-5-2 5-2zM102 119l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"
+                />
+              </g>
+              <path class="mount-back" d="M8 222L87 131l31 31 34-48 75 108z" fill="#343247" />
+              <path class="mount-front" d="M73 222l77-91 83 91z" fill="url(#mount)" />
+              <path d="M134 151l16-20 21 25-19-7-9 7z" fill="#c6b4db" />
+              <ellipse cx="150" cy="139" rx="37" ry="5" fill="#f2ca83" opacity=".35" />
+              <g id="heroFigure" fill="#edc88a">
+                <circle cx="150" cy="71" r="10" />
+                <path d="M142 83q8-5 16 0l9 30 19 9q4 7-5 7l-31-9-31 9q-9 0-5-7l19-9z" />
+                <path d="M139 96l-16 13-9-2-1 3 12 5 17-10zm22 0 16 13 9-2 1 3-12 5-17-10z" />
+              </g>
+              <path d="M150 24v24m0 90v55" stroke="#f4d697" stroke-width="2" opacity=".65" />
+              <g fill="#edd5a8">
+                <circle cx="93" cy="56" r="2" />
+                <circle cx="206" cy="51" r="2" />
+                <circle cx="217" cy="113" r="1.5" />
+                <circle cx="77" cy="117" r="1.5" />
+              </g></svg
+            ><h3>Провідниця світла</h3><p>Ясність · вплив · втілення</p
+            ><p class="aura-caption" id="auraCaption" aria-live="polite"></p
+            ><div class="level"><span id="level"></span><span id="xp"></span></div
+            ><div class="meter"><div id="xpbar"></div></div
+            ><div class="stats"
+              ><div class="stat"><b id="coins">0</b><span>іскор зібрано</span></div
+              ><div class="stat"><b id="wins">0</b><span>кроків втілено</span></div></div
+            ></div
+          ><div class="card"
+            ><h3 class="aside-title">Артефакти твого шляху</h3
+            ><p class="note">Символи якостей, які ти проявляєш діями.</p
+            ><div class="artifacts" id="artifacts"></div><p class="note" id="artifactHint"></p></div
+          ><div class="card"
+            ><div class="eyebrow" style="margin-bottom:12px">Нагадування собі</div
+            ><p class="quote">«Моя сила — у точних діях. Мені достатньо зробити наступний крок».</p
+            ><button class="ghost small" id="checkin" style="margin-top:16px"
+              >Налаштуватися на сет ↗</button
+            ></div
+          ></aside
+        ></div
+      ><section class="card pilot-card" id="pilot-indicators"></section></div></main
+    ><dialog id="modal"><div id="modalContent"></div></dialog
+    ><div id="toast" class="toast hidden" role="status"></div
+    ><script src="./quest-core.js?v=7"></script
+    ><script src="./initial.js?v=3"></script
+    ><script src="./demo.js"></script><script src="./pilot-core.js"></script><script src="./state.js?v=12"></script>
+<script src="./templates.js?v=12"></script>
+<script src="./ui.js?v=12"></script>
+<script src="./timer.js?v=12"></script>
+<script src="./tasks.js?v=12"></script>
+<script src="./render.js?v=12"></script>
+<script src="./editors.js?v=12"></script>
+<script src="./data.js?v=12"></script>
+<script src="./app.js?v=12"></script><script src="./pilot-ui.js"></script></body
+></html>

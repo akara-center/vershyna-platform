@@ -1,0 +1,65 @@
+[hidden] { display: none !important; }
+
+#pilot-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: .75rem;
+  margin-bottom: 1.35rem;
+}
+
+#pilot-nav button { min-height: 44px; }
+#pilot-nav [aria-current="page"] {
+  background: var(--gold, #e7bf7b);
+  color: #20172a;
+  border-color: transparent;
+}
+
+.pilot-title { margin: 1.35rem 0; }
+.pilot-card { margin-bottom: 1rem; min-width: 0; }
+#pilot-indicators { margin-top: 1rem; }
+.pilot-card h2 { margin-top: 0; }
+.pilot-card h3, .pilot-card h4 { margin: 1rem 0 .5rem; }
+.pilot-card label { display: grid; gap: .35rem; font-size: .95rem; }
+.pilot-card input, .pilot-card select, .pilot-card textarea { min-width: 0; width: 100%; }
+.pilot-card textarea { resize: vertical; }
+.pilot-card fieldset { border: 1px solid var(--line); margin: .8rem 0; padding: .65rem 1rem; min-width: 0; }
+.pilot-card legend { padding: 0 .35rem; }
+.pilot-card details { margin: .9rem 0; }
+.pilot-card summary { cursor: pointer; padding: .5rem 0; }
+.pilot-card dd { margin: .25rem 0 .65rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pilot-card dt { font-weight: 650; }
+
+.pilot-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.pilot-inline, .pilot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .7rem;
+  align-items: end;
+  margin: .8rem 0;
+}
+.pilot-inline > label { flex: 1 1 11rem; }
+.pilot-actions a { padding: .65rem .45rem; text-underline-offset: .22em; }
+.pilot-card label.pilot-choice {
+  display: flex;
+  align-items: start;
+  gap: .6rem;
+  padding: .3rem 0;
+  overflow-wrap: anywhere;
+}
+.pilot-choice input[type="checkbox"] { width: 1.15rem; height: 1.15rem; flex-shrink: 0; margin: .1rem 0; }
+.pilot-reading { display: grid; grid-template-columns: auto minmax(4rem, 1fr) 3.5rem; gap: .6rem; margin: .5rem 0; }
+.pilot-reading meter { width: 100%; height: 1rem; }
+.pilot-report-entry { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+@media (max-width: 640px) {
+  #pilot-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #pilot-nav button { padding-inline: .45rem; }
+  .pilot-grid { grid-template-columns: minmax(0, 1fr); }
+}
