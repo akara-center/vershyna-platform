@@ -171,6 +171,15 @@ function proposals(parent, data, coach) {
 async function refreshDetail() {
   const data = await api("contracts/" + selected.id);
   const coach = profile.role === "coach";
+  const openPanels = new Set([...detail.querySelectorAll("details[open][data-panel]")]
+    .map((node) => node.dataset.panel));
+  function panel(parent, id, heading) {
+    const node = element("details", undefined, parent);
+    node.dataset.panel = id;
+    node.open = openPanels.has(id);
+    element("summary", heading, node);
+    return node;
+  }
   detail.hidden = false;
   detail.replaceChildren();
   const heading = element("h2", data.status === "active" ? "Активна співпраця" : "Завершена співпраця", detail);
@@ -183,8 +192,7 @@ async function refreshDetail() {
     if (data.status === "active") button(detail, "Завершити спільний доступ", async () => {
       if (confirm("Завершити спільний доступ до трекера?")) await mutate({ action: "finish" }, true);
     });
-    const archive = element("details", undefined, detail);
-    element("summary", "Мій робочий архів", archive);
+    const archive = panel(detail, "archive", "Мій робочий архів");
     for (const note of data.notes) {
       element("p", note.at.slice(0, 10) + " · " + note.text, archive);
       button(archive, "Видалити нотатку", async () => {
@@ -205,8 +213,7 @@ async function refreshDetail() {
     });
   }
   if (coach) {
-    const feed = element("details", undefined, detail);
-    element("summary", "Стрічка змін · непрочитаних " + data.unread, feed);
+    const feed = panel(detail, "feed", "Стрічка змін · непрочитаних " + data.unread);
     if (data.unread) button(feed, "Позначити видимі зміни переглянутими", () => mutate({ action: "read" }));
     for (const event of data.events) {
       element("h4", (event.viewed ? "" : "• ") + event.label, feed);
@@ -217,8 +224,7 @@ async function refreshDetail() {
       }
     }
   }
-  const blocks = element("details", undefined, detail);
-  element("summary", coach ? "Доступні блоки" : "Видимість блоків для коуча", blocks);
+  const blocks = panel(detail, "blocks", coach ? "Доступні блоки" : "Видимість блоків для коуча");
   const editable = [];
   for (const block of data.blocks) {
     const row = element("section", undefined, blocks);
@@ -242,8 +248,7 @@ async function refreshDetail() {
   }
   if (coach && data.phase === "shared" && editable.length) {
     form(detail, "Надіслати пропозицію", (node) => {
-      const options = element("details", undefined, node);
-      element("summary", "Обрати поля для пропозиції", options);
+      const options = panel(node, "proposal", "Обрати поля для пропозиції");
       editable.forEach(({ block, field: key }, index) => {
         field(options, "edit-" + index, block.label + " · " + (labels[key] || key), "textarea");
       });
