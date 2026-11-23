@@ -1,0 +1,12 @@
+.collaboration { max-width: 940px; }
+.collaboration textarea { width: 100%; }
+.collaboration .note { display: block; }
+.collaboration [aria-current="page"] { background: #e7bf7b; color: #20172a; }
+.collaboration .card { margin-bottom: 1rem; }
+.collab-row { display: grid; gap: .4rem; margin: .8rem 0; padding-top: .65rem; border-top: 1px solid var(--line); }
+.collab-diff, .collab-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.collab-diff del { color: #ffd4d3; background: #6c303e; }
+.collab-diff ins { color: #e0ffe5; background: #245a41; text-decoration: none; font-weight: 700; }
+.collab-unread { border-left: 3px solid #e7bf7b; padding-left: .65rem; }
+.collaboration input[type="checkbox"] { width: 1rem; height: 1rem; }
+.collaboration select { max-width: 100%; }
