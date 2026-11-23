@@ -141,6 +141,10 @@ function initializeState() {
     if (!state.missions.some((m) => m.id === state.active))
       state.active = state.missions[0]?.id || null;
     try {
+      if (!raw) {
+        // A fresh profile has no legacy backups to reset on its next visit.
+        localStorage.setItem(KEY + "-github-backup-reset-v1", "1");
+      }
       localStorage.setItem(KEY, JSON.stringify(state));
     } catch {
       persistenceBlocked = true;
