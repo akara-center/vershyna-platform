@@ -18,6 +18,20 @@ jobs:
           node-version: 24
       - run: node scripts/check-syntax.cjs
       - run: node --test tests/*.test.cjs
+      - name: Check deployment container
+        run: |
+          docker build --tag vershyna:checks .
+          docker volume create vershyna-checks
+          trap 'docker rm -f vershyna-checks; docker volume rm vershyna-checks' EXIT
+          docker run --rm --mount source=vershyna-checks,target=/data vershyna:checks \
+            node server/start.cjs provision ci-client client >/dev/null
+          docker run --detach --name vershyna-checks --publish 127.0.0.1:18762:18762 \
+            --mount source=vershyna-checks,target=/data --env RAILWAY_SERVICE_ID=ci \
+            --env RAILWAY_VOLUME_MOUNT_PATH=/data --env RAILWAY_PUBLIC_DOMAIN=ci.example.invalid \
+            --env PORT=18762 vershyna:checks
+          curl --fail --retry 10 --retry-connrefused http://127.0.0.1:18762/healthz
+          docker exec --user node vershyna-checks node -e \
+            'const db = require("./server/workspaces.cjs").openWorkspaces("/data/vershyna.sqlite"); if (!db.prepare("SELECT id FROM workspace_accounts WHERE id = ?").get("ci-client")) process.exit(1); db.close();'
       - run: npm install --prefix "$RUNNER_TEMP/vershyna-browser" --no-package-lock playwright@1.56.1
       - name: Run browser scenarios
         run: |

@@ -237,9 +237,12 @@ function setUpCoach(db, { validateTracker, applyPackage, visionLabels, reviseRou
 
     need(isActive, "Спільний доступ завершено.", 409);
     if (action === "finish" || action === "handoff") {
-      need(isCoach, "Дію може виконати коуч.", 403);
-      if (action === "finish") db.prepare("UPDATE coach_contracts SET status = 'closed' WHERE id = ?").run(contract.id);
-      else db.prepare("UPDATE coach_contracts SET phase = 'shared' WHERE id = ?").run(contract.id);
+      if (action === "finish") {
+        db.prepare("UPDATE coach_contracts SET status = 'closed' WHERE id = ?").run(contract.id);
+      } else {
+        need(isCoach, "Дію може виконати коуч.", 403);
+        db.prepare("UPDATE coach_contracts SET phase = 'shared' WHERE id = ?").run(contract.id);
+      }
       return;
     }
 
@@ -361,7 +364,7 @@ function setUpCoach(db, { validateTracker, applyPackage, visionLabels, reviseRou
           WHERE coach_id = ? OR client_id = ? ORDER BY started DESC`).all(id, id);
         const archives = db.prepare("SELECT id, at FROM client_archives WHERE client_id = ? ORDER BY at DESC").all(id);
         const selectable = [...blocks(trackerOf(id)).values()].map(({ id, label }) => ({ id, label }));
-        return json(res, 200, { contracts, archives, selectable });
+        return json(res, 200, { contracts, archives, selectable, hasTracker: Boolean(account.tracker) });
       }
       if (pathname === "/api/coach/contracts" && req.method === "POST") {
         const data = await readJson(req);
@@ -376,16 +379,18 @@ function setUpCoach(db, { validateTracker, applyPackage, visionLabels, reviseRou
           const first = !db.prepare("SELECT 1 FROM coach_contracts WHERE client_id = ?").get(client);
           need(!isCoach || first, "Наступний контракт відкриває клієнт.", 403);
           const fresh = data.fresh === true;
-          need(!isCoach || !current(client).tracker, "Клієнт має сам відкрити доступ до наявного трекера.", 403);
+          const hasTracker = Boolean(current(client).tracker);
+          need(!isCoach || !hasTracker, "Клієнт має сам відкрити доступ до наявного трекера.", 403);
+          const shareExisting = hasTracker && !fresh;
           const rows = blocks(trackerOf(client));
           const scopes = data.scopes;
-          if (!first && !fresh) need(Array.isArray(scopes) && scopes.length && scopes.every((key) => rows.has(key)),
+          if (shareExisting) need(Array.isArray(scopes) && scopes.length && scopes.every((key) => rows.has(key)),
             "Обери блоки попереднього трекера для нового контракту.");
-          if (fresh) archiveClient(client);
+          if (fresh && hasTracker) archiveClient(client);
           const contract = randomUUID();
           db.prepare("INSERT INTO coach_contracts VALUES (?, ?, ?, ?, 'active', ?, ?)")
-            .run(contract, coach, client, now(), first || fresh ? "setup" : "shared",
-              first || fresh ? null : JSON.stringify([...new Set(scopes)]));
+            .run(contract, coach, client, now(), shareExisting ? "shared" : "setup",
+              shareExisting ? JSON.stringify([...new Set(scopes)]) : null);
           return { id: contract };
         }));
       }

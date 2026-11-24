@@ -63,6 +63,10 @@ function createServer(db, origin, calendarOptions) {
 if (require.main === module) {
   process.umask(0o077);
   const dbPath = process.env.VERSHYNA_DB || path.resolve("var/vershyna.sqlite");
+  if (process.env.RAILWAY_SERVICE_ID &&
+      (process.env.RAILWAY_VOLUME_MOUNT_PATH !== "/data" || path.dirname(dbPath) !== "/data")) {
+    throw Error("На Railway база має бути в постійному томі /data.");
+  }
   if (dbPath !== ":memory:") fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = openWorkspaces(dbPath);
   if (process.argv[2] === "backup") {
@@ -76,7 +80,12 @@ if (require.main === module) {
   } else {
     const port = Number(process.env.VERSHYNA_PORT || process.env.PORT || 8787);
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw Error("Некоректний порт.");
-    const origin = new URL(process.env.VERSHYNA_ORIGIN || `http://127.0.0.1:${port}`).origin;
+    const publicDomain = process.env.RAILWAY_PUBLIC_DOMAIN;
+    const publicOrigin = process.env.VERSHYNA_ORIGIN || (publicDomain && `https://${publicDomain}`);
+    const origin = new URL(publicOrigin || `http://127.0.0.1:${port}`).origin;
+    if (process.env.RAILWAY_SERVICE_ID && !origin.startsWith("https://")) {
+      throw Error("Додай публічний HTTPS-домен Railway або задай VERSHYNA_ORIGIN.");
+    }
     const calendarOptions = { clientId: process.env.VERSHYNA_GOOGLE_CLIENT_ID,
       clientSecret: process.env.VERSHYNA_GOOGLE_CLIENT_SECRET, encryptionKey: process.env.VERSHYNA_GOOGLE_TOKEN_KEY };
     createServer(db, origin, calendarOptions).listen(port, process.env.VERSHYNA_HOST || "127.0.0.1", () => console.log(`Вершина: ${origin}/account`));
