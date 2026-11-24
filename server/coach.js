@@ -92,10 +92,10 @@ async function refreshList() {
   }
   if (!data.contracts.length) element("p", "Контрактів поки немає.", list);
   if (coach || !data.contracts.some((contract) => contract.status === "active")) {
-    const fresh = !coach && data.contracts.length > 0;
+    const hasTracker = !coach && data.hasTracker;
     form(list, "Створити контракт", (node) => {
       field(node, coach ? "client" : "coach", coach ? "Акаунт клієнта" : "Акаунт коуча").required = true;
-      if (fresh) {
+      if (hasTracker) {
         field(node, "fresh", "Почати з нового трекера та перенести поточний в архів", "checkbox");
         const scope = element("details", undefined, node);
         element("summary", "Обрати блоки поточного трекера", scope);
@@ -189,9 +189,6 @@ async function refreshDetail() {
       if (data.suspended || confirm("Призупинити доступ клієнта до трекерів? Дані збережуться."))
         await mutate({ action: "suspend", enabled: !data.suspended });
     });
-    if (data.status === "active") button(detail, "Завершити спільний доступ", async () => {
-      if (confirm("Завершити спільний доступ до трекера?")) await mutate({ action: "finish" }, true);
-    });
     const archive = panel(detail, "archive", "Мій робочий архів");
     for (const note of data.notes) {
       element("p", note.at.slice(0, 10) + " · " + note.text, archive);
@@ -204,6 +201,9 @@ async function refreshDetail() {
     }, (values) => mutate({ action: "archive-note", text: values.get("note") }));
   }
   if (data.status !== "active") return;
+  button(detail, "Завершити спільний доступ", async () => {
+    if (confirm("Завершити спільний доступ до трекера?")) await mutate({ action: "finish" }, true);
+  });
   if (coach && data.phase === "setup") {
     form(detail, "Додати початковий пакет", (node) => {
       field(node, "packet", "JSON-пакет маршруту", "textarea").required = true;

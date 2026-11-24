@@ -94,6 +94,18 @@ test("Ролі, передача трекера, приватні гілки, п
   const archive = "/api/coach/previous/" + data.archives[0].id;
   assert.equal((await (await call(archive, client)).json()).missions[0].id, project.id);
   await call(archive, coach, undefined, "GET", 404);
+  const independent = await login(provision(db, "independent"));
+  await call("/api/workspace", independent, { tracker, revision: 0 }, "PUT");
+  await call(contracts, coach, { client: "independent" }, "POST", 403);
+  await call(contracts, independent, { coach: "coach", scopes: [] }, "POST", 400);
+  const firstShared = await (await call(contracts, independent, { coach: "coach", scopes: [block] })).json();
+  const firstSharedPath = contracts + "/" + firstShared.id;
+  const firstSharedView = await (await call(firstSharedPath, coach)).json();
+  assert.equal(firstSharedView.phase, "shared");
+  assert.deepEqual(firstSharedView.blocks.map(({ id }) => id), [block]);
+  await call(firstSharedPath, independent, { action: "finish" });
+  assert.deepEqual((await (await call(firstSharedPath, coach)).json()).blocks, []);
+  assert.ok((await (await call("/api/workspace", independent)).json()).tracker);
   provision(db, "client", "client", true);
   await call("/api/workspace", client, undefined, "GET", 401);
 });
