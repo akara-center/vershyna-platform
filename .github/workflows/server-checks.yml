@@ -29,7 +29,11 @@ jobs:
             --mount source=vershyna-checks,target=/data --env RAILWAY_SERVICE_ID=ci \
             --env RAILWAY_VOLUME_MOUNT_PATH=/data --env RAILWAY_PUBLIC_DOMAIN=ci.example.invalid \
             --env PORT=18762 vershyna:checks
-          curl --fail --retry 10 --retry-connrefused http://127.0.0.1:18762/healthz
+          if ! curl --fail --silent --show-error --retry 15 --retry-all-errors --retry-delay 1 \
+            --max-time 2 http://127.0.0.1:18762/healthz; then
+            docker logs vershyna-checks
+            exit 1
+          fi
           docker exec --user node vershyna-checks node -e \
             'const db = require("./server/workspaces.cjs").openWorkspaces("/data/vershyna.sqlite"); if (!db.prepare("SELECT id FROM workspace_accounts WHERE id = ?").get("ci-client")) process.exit(1); db.close();'
       - run: npm install --prefix "$RUNNER_TEMP/vershyna-browser" --no-package-lock playwright@1.56.1
