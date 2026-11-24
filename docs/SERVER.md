@@ -46,6 +46,22 @@ node server/start.cjs
 
 Ліміт Free — 0,5 ГБ постійного диска і $1 кредиту на місяць. Коли кредит вичерпано, сервіс зупиняється до нового розрахункового періоду або зміни тарифу. Умови та відмінності пробного періоду описані в [Railway Free](https://docs.railway.com/pricing/free-plan).
 
+## Вхід через Google
+
+У Google Auth Platform створи OAuth-клієнт типу Web application. Додай перенаправлення
+`https://<домен-вершини>/auth/google/callback`. Якщо застосунок Google має статус Testing,
+додай дозволені Google-акаунти до Test users. У середовищі сервера налаштуй:
+
+- `VERSHYNA_LOGIN_GOOGLE_CLIENT_ID` та `VERSHYNA_LOGIN_GOOGLE_CLIENT_SECRET` з Google Cloud.
+- `VERSHYNA_LOGIN_COACH_EMAIL` — підтверджена адреса Google власниці кабінету.
+  Перший вхід створює або приєднує її акаунт `kateryna-coach`.
+- `VERSHYNA_LOGIN_GOOGLE_REGISTER_CLIENTS=1` вмикає самостійну реєстрацію клієнтів.
+  Без цієї змінної Google-вхід доступний власниці та вже прив'язаним клієнтам.
+
+Google-вхід використовує SQLite і чинні сесії застосунку. Для нового домену додай відповідний
+redirect URI в Google Cloud та онови зовнішню адресу сервера. Налаштування Google Calendar
+окремі. Секрет зберігай тільки в середовищі сервера.
+
 ## Автоматичні перевірки
 
 `node scripts/check-syntax.cjs` перевіряє синтаксис. `node --test tests/*.test.cjs` запускає тести браузерної логіки, HTTP API, контрактів, видимості й Google Calendar на підставних відповідях. GitHub Actions запускає окремий браузерний сценарій через Playwright для клієнта у двох профілях і кабінету коуча. Він використовує чисту базу в пам’яті.

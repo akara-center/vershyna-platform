@@ -47,6 +47,12 @@ function openWorkspaces(dbPath) {
     CREATE TABLE IF NOT EXISTS workspace_sessions (
       digest TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES workspace_accounts(id),
       expires INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS workspace_google_identities (
+      subject TEXT PRIMARY KEY, account_id TEXT NOT NULL UNIQUE REFERENCES workspace_accounts(id)
+    );
+    CREATE TABLE IF NOT EXISTS google_login_attempts (
+      digest TEXT PRIMARY KEY, verifier TEXT NOT NULL, nonce TEXT NOT NULL, expires INTEGER NOT NULL
     );`);
   configureCoach(db);
   return db;
@@ -103,28 +109,59 @@ function snapshot(account) {
     tracker: account.tracker ? JSON.parse(account.tracker) : null };
 }
 
+function sessionCookie(origin, value, maxAge) {
+  return `vershyna_session=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${origin.startsWith("https:") ? "; Secure" : ""}`;
+}
+
+function startSession(db, origin, req, accountId) {
+  const session = token();
+  const now = Math.floor(Date.now() / 1000);
+  db.prepare("DELETE FROM workspace_sessions WHERE expires <= ? OR digest = ?").run(now, sessionDigest(req));
+  db.prepare("INSERT INTO workspace_sessions VALUES (?, ?, ?)").run(hash(session), accountId, now + sessionLifetime);
+  return sessionCookie(origin, session, sessionLifetime);
+}
+
+function identifyGoogleAccount(db, coach, subject, isCoach, registerClients) {
+  return coach.transaction(() => {
+    const identity = db.prepare("SELECT account_id FROM workspace_google_identities WHERE subject = ?").get(subject);
+    if (identity) {
+      const role = coach.role(identity.account_id);
+      if (role === "coach" && !isCoach) return null;
+      return { id: identity.account_id, role };
+    }
+    if (!isCoach && !registerClients) return null;
+    const id = isCoach ? "kateryna-coach" : randomUUID();
+    const role = isCoach ? "coach" : "client";
+    const existing = db.prepare("SELECT id FROM workspace_accounts WHERE id = ?").get(id);
+    if (existing) {
+      if (coach.role(id) !== role || db.prepare("SELECT subject FROM workspace_google_identities WHERE account_id = ?").get(id))
+        return null;
+    } else {
+      db.prepare("INSERT INTO workspace_accounts (id, key_digest) VALUES (?, ?)").run(id, hash(token()));
+      if (isCoach) db.prepare("INSERT INTO coach_roles VALUES (?)").run(id);
+    }
+    db.prepare("INSERT INTO workspace_google_identities VALUES (?, ?)").run(subject, id);
+    return { id, role };
+  });
+}
+
 function workspaceApi(db, origin, calendar, coach = configureCoach(db)) {
-  const cookie = (value, maxAge) => `vershyna_session=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${origin.startsWith("https:") ? "; Secure" : ""}`;
   return async (req, res, pathname) => {
     const method = req.method;
     try {
       if (method !== "GET" && req.headers.origin !== origin) return json(res, 403, { error: "Неприпустимий запит." });
       const digest = sessionDigest(req);
-      const now = Math.floor(Date.now() / 1000);
       if (pathname === "/api/session" && method === "POST") {
         const payload = await readJson(req);
         const key = payload?.key;
         const account = typeof key === "string" && /^[A-Za-z0-9_-]{43}$/.test(key) &&
           db.prepare("SELECT id FROM workspace_accounts WHERE key_digest = ?").get(hash(key));
         if (!account) return json(res, 401, { error: "Ключ доступу недійсний." });
-        const session = token();
-        db.prepare("DELETE FROM workspace_sessions WHERE expires <= ? OR digest = ?").run(now, digest);
-        db.prepare("INSERT INTO workspace_sessions VALUES (?, ?, ?)").run(hash(session), account.id, now + sessionLifetime);
-        return json(res, 200, { account: account.id }, { "Set-Cookie": cookie(session, sessionLifetime) });
+        return json(res, 200, { account: account.id }, { "Set-Cookie": startSession(db, origin, req, account.id) });
       }
       if (pathname === "/api/session" && method === "DELETE") {
         db.prepare("DELETE FROM workspace_sessions WHERE digest = ?").run(digest);
-        return json(res, 200, {}, { "Set-Cookie": cookie("", 0) });
+        return json(res, 200, {}, { "Set-Cookie": sessionCookie(origin, "", 0) });
       }
       const account = activeAccount(db, req);
       if (!account || (req.headers["x-vershyna-account"] && req.headers["x-vershyna-account"] !== account.id))
@@ -178,4 +215,4 @@ function workspaceApi(db, origin, calendar, coach = configureCoach(db)) {
   };
 }
 
-module.exports = { openWorkspaces, provision, workspaceApi, activeAccount, snapshot, configureCoach };
+module.exports = { startSession, identifyGoogleAccount, openWorkspaces, provision, workspaceApi, activeAccount, snapshot, configureCoach };

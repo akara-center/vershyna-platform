@@ -12,10 +12,13 @@
   <main>
     <h1>Мій акаунт</h1>
     <section class="card pilot-card">
-      <form id="login" hidden>
-        <label>Ключ доступу<input name="key" type="password" required minlength="43" maxlength="43"></label>
-        <button>Увійти</button>
-      </form>
+      <div id="sign-in" hidden>
+        <div id="google-login" hidden class="pilot-actions"><a href="/auth/google" referrerpolicy="no-referrer">Увійти через Google</a></div>
+        <form id="login">
+          <label>Ключ доступу<input name="key" type="password" required minlength="43" maxlength="43"></label>
+          <button>Увійти за ключем</button>
+        </form>
+      </div>
       <div id="workspace" hidden>
         <p id="account-info"></p>
         <div class="pilot-actions">

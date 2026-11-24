@@ -21,7 +21,7 @@ async function api(path, method = "GET", data) {
 }
 
 function render() {
-  login.hidden = Boolean(workspace || profile?.suspended);
+  $("sign-in").hidden = Boolean(workspace || profile?.suspended);
   $("tracker-link").hidden = !workspace;
   $("blocked-logout").hidden = !profile?.suspended;
   $("coach-link").textContent = profile?.role === "coach" ? "Кабінет коуча" : "Співпраця з коучем";
@@ -112,7 +112,12 @@ upload.onsubmit = (event) => {
     status.textContent = "Копію збережено.";
   });
 };
-void act(refresh);
+void act(async () => {
+  await refresh();
+  const loginResult = new URLSearchParams(location.search).get("login");
+  if (loginResult === "failed") status.textContent = "Не вдалося увійти через Google. Спробуй ще раз.";
+  if (loginResult === "unavailable") status.textContent = "Вхід для цього Google-акаунта поки недоступний.";
+});
 $("calendar-connect").onclick = () => void act(async () => {
   location.assign((await api("/api/calendar/connect", "POST")).url);
 });

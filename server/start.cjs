@@ -3,8 +3,9 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const http = require("node:http");
-const { openWorkspaces, provision, workspaceApi, activeAccount, snapshot, configureCoach } = require("./workspaces.cjs");
+const { openWorkspaces, provision, workspaceApi, activeAccount, snapshot, configureCoach, startSession, identifyGoogleAccount } = require("./workspaces.cjs");
 
+const { setupGoogleLogin } = require("./google-login.cjs");
 const { setupCalendar } = require("./calendar-account.cjs");
 
 const dist = path.resolve(__dirname, "../dist");
@@ -12,12 +13,17 @@ const mime = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; cha
   ".css": "text/css; charset=utf-8", ".json": "application/json", ".png": "image/png",
   ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
 
-function createServer(db, origin, calendarOptions) {
+function createServer(db, origin, calendarOptions, googleOptions) {
   const coach = configureCoach(db);
   const calendar = setupCalendar(db, origin, calendarOptions, coach);
+  const google = setupGoogleLogin(db, origin, googleOptions);
   const api = workspaceApi(db, origin, calendar.api, coach);
   const server = http.createServer({ requestTimeout: 20000 }, (req, res) => {
-    const pathname = new URL(req.url, "http://localhost").pathname;
+    const url = new URL(req.url, "http://localhost");
+    const { pathname } = url;
+    if (pathname === "/auth/google" || pathname === "/auth/google/callback")
+      return void google.handle(req, res, url,
+        (...args) => identifyGoogleAccount(db, coach, ...args), (id) => startSession(db, origin, req, id));
     if (pathname === "/healthz" && req.method === "GET") return void res.writeHead(200, { "Cache-Control": "no-store" }).end("ok");
     if (pathname.startsWith("/api/")) return void api(req, res, pathname);
     if (req.method !== "GET" && req.method !== "HEAD") return void res.writeHead(405).end();
@@ -43,6 +49,10 @@ function createServer(db, origin, calendarOptions) {
     if (!type || !fs.existsSync(file)) return void res.writeHead(404).end();
     res.writeHead(200, { "Content-Type": type, "X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache" });
     if (req.method === "HEAD") return void res.end();
+    if (pathname === "/account" && google.enabled) {
+      const html = fs.readFileSync(file, "utf8").replace('id="google-login" hidden', 'id="google-login"');
+      return void res.end(html);
+    }
     fs.createReadStream(file).on("error", () => res.destroy()).pipe(res);
   });
   if (calendar.enabled) {
@@ -88,7 +98,13 @@ if (require.main === module) {
     }
     const calendarOptions = { clientId: process.env.VERSHYNA_GOOGLE_CLIENT_ID,
       clientSecret: process.env.VERSHYNA_GOOGLE_CLIENT_SECRET, encryptionKey: process.env.VERSHYNA_GOOGLE_TOKEN_KEY };
-    createServer(db, origin, calendarOptions).listen(port, process.env.VERSHYNA_HOST || "127.0.0.1", () => console.log(`Вершина: ${origin}/account`));
+    const googleOptions = {
+      clientId: process.env.VERSHYNA_LOGIN_GOOGLE_CLIENT_ID,
+      clientSecret: process.env.VERSHYNA_LOGIN_GOOGLE_CLIENT_SECRET,
+      coachEmail: process.env.VERSHYNA_LOGIN_COACH_EMAIL,
+      registerClients: process.env.VERSHYNA_LOGIN_GOOGLE_REGISTER_CLIENTS === "1",
+    };
+    createServer(db, origin, calendarOptions, googleOptions).listen(port, process.env.VERSHYNA_HOST || "127.0.0.1", () => console.log(`Вершина: ${origin}/account`));
   }
 }
 
