@@ -17,3 +17,4 @@
 - [План](docs/PLAN.md), [статус](docs/STATUS.md), [перший тест](docs/TESTING.md).
 - [Карта коду](docs/ARCHITECTURE.md), [дані](docs/DATA.md), [перенесення трекера](docs/MIGRATION.md).
 - [Налаштування й публікація](docs/OPERATIONS.md), [доступи](docs/ACCESS.md).
+- [Google Branding і чернетки публічних сторінок](docs/BRANDING.md).
