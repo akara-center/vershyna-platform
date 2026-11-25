@@ -49,14 +49,33 @@ test("Google sign-in binds a verified coach identity and rejects replay or an un
 
   assert.match(await (await call("/account")).text(), /id="google-login" class=/);
   const owner = await login("owner@gmail.com", "coach-subject");
-  assert.equal(owner.response.headers.get("location"), "/coach");
+  assert.equal(owner.response.headers.get("location"), "/tracker");
   const session = owner.response.headers.getSetCookie().find((entry) => entry.startsWith("vershyna_session=")).split(";")[0];
   const profile = await (await call("/api/coach/profile", session)).json();
   assert.equal(profile.role, "coach");
+  assert.equal(profile.email, "owner@gmail.com");
+  assert.equal((await call("/", session)).headers.get("location"), "/tracker");
+  for (const [path, link] of [["/tracker", "/coach"], ["/coach", "/tracker"]]) {
+    const page = await call(path, session);
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get("cache-control"), /private, no-store/);
+    const html = await page.text();
+    assert.match(html, /Ви увійшли як <strong>owner@gmail.com<\/strong>/);
+    assert.match(html, new RegExp('href="' + link + '"'));
+    assert.match(html, /data-session-logout/);
+    assert.equal((await call(path)).headers.get("location"), "/account");
+  }
+  const logout = (account) => fetch(base + "/api/session", {
+    method: "DELETE", headers: { Cookie: session, Origin: origin, "X-Vershyna-Account": account },
+  });
+  assert.equal((await logout("another-account")).status, 401);
+  assert.equal((await call("/tracker", session)).status, 200);
+  assert.equal((await logout(profile.account)).status, 200);
+  assert.equal((await call("/tracker", session)).headers.get("location"), "/account");
   assert.equal((await call(owner.callback, owner.cookie)).headers.get("location"), "/account?login=failed");
   assert.equal((await login("guest@gmail.com", "other-subject")).response.headers.get("location"), "/account?login=unavailable");
   assert.equal((await login("owner@gmail.com", "other-subject")).response.headers.get("location"), "/account?login=unavailable");
-  assert.equal((await login("owner@gmail.com", "coach-subject")).response.headers.get("location"), "/coach");
+  assert.equal((await login("owner@gmail.com", "coach-subject")).response.headers.get("location"), "/tracker");
 
   badSignature = true;
   assert.equal((await login("owner@gmail.com", "coach-subject")).response.headers.get("location"), "/account?login=failed");

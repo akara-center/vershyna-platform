@@ -13,6 +13,7 @@
     <h1>Мій акаунт</h1>
     <section class="card pilot-card">
       <div id="sign-in" hidden>
+        <p>Ви не увійшли до Вершини.</p>
         <div id="google-login" hidden class="pilot-actions"><a href="/auth/google" referrerpolicy="no-referrer">Увійти через Google</a></div>
         <form id="login">
           <label>Ключ доступу<input name="key" type="password" required minlength="43" maxlength="43"></label>
@@ -20,6 +21,7 @@
         </form>
       </div>
       <div id="workspace" hidden>
+        <p id="account-identity"></p>
         <p id="account-info"></p>
         <div class="pilot-actions">
           <a href="/coach" id="coach-link">Співпраця з коучем</a>

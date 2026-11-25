@@ -9,9 +9,11 @@ let profile;
 let busy = false;
 
 async function api(path, method = "GET", data) {
-  const options = { method, cache: "no-store" };
+  const options = { method, cache: "no-store", headers: {} };
+  if (profile && !(path === "/api/session" && method === "POST"))
+    options.headers["X-Vershyna-Account"] = profile.account;
   if (data !== undefined) {
-    options.headers = { "Content-Type": "application/json" };
+    options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(data);
   }
   const response = await fetch(path, options);
@@ -30,6 +32,7 @@ function render() {
     $("calendar-account").hidden = true;
     $("drive-backup").hidden = true;
   }
+  $("account-identity").textContent = profile ? "Ви увійшли як " + (profile.email ?? profile.account) : "";
   $("account-info").textContent = workspace
     ? `Акаунт: ${workspace.account}. ${workspace.revision ? "Версія копії " + workspace.revision + "." : "Копій поки немає."}`
     : "";
@@ -89,6 +92,7 @@ async function act(task) {
   } catch (error) {
     if (error.status === 401) {
       workspace = undefined;
+      profile = undefined;
       render();
     }
     status.textContent = error instanceof SyntaxError ? "Файл не вдалося прочитати як JSON." : error.message;
@@ -104,8 +108,8 @@ login.onsubmit = (event) => {
     const key = new FormData(login).get("key").trim();
     login.reset();
     await api("/api/session", "POST", { key });
-    await refresh();
-    if (!profile?.suspended) location.assign(profile?.role === "coach" ? "/coach" : "/tracker");
+    profile = undefined;
+    location.assign("/tracker");
   });
 };
 $("logout").onclick = $("blocked-logout").onclick = () => void act(async () => {

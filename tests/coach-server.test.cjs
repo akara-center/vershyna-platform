@@ -40,6 +40,12 @@ test("Ролі, передача трекера, приватні гілки, п
   const change = async (payload, expected) => call(detail, coach, payload, "POST", expected);
 
   await call(detail, other, undefined, "GET", 404);
+  const otherClient = await login(provision(db, "other-client"));
+  const otherCreated = await (await call(contracts, other, { client: "other-client" })).json();
+  await call(contracts + "/" + otherCreated.id, otherClient);
+  await call(contracts + "/" + otherCreated.id, coach, undefined, "GET", 404);
+  assert.deepEqual((await (await call(contracts, other)).json()).contracts.map(({ id }) => id), [otherCreated.id]);
+  assert.deepEqual((await (await call(contracts, coach)).json()).contracts.map(({ id }) => id), [created.id]);
   const packet = fs.readFileSync(path.resolve(__dirname, "../dist/example-coach-route.json"), "utf8");
   await change({ action: "setup", package: packet });
   const { tracker, revision } = await work();

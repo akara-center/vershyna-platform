@@ -15,7 +15,9 @@ let busy = false;
 async function api(path, data) {
   const response = await fetch("/api/coach/" + path, {
     cache: "no-store", signal: AbortSignal.timeout(10000),
-    ...(data ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) } : {}),
+    headers: { "X-Vershyna-Account": document.querySelector(".session-navigation").dataset.account,
+      ...(data ? { "Content-Type": "application/json" } : {}) },
+    ...(data ? { method: "POST", body: JSON.stringify(data) } : {}),
   });
   if (response.status === 401) location.replace("/account");
   const value = await response.json();

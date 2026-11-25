@@ -357,7 +357,7 @@ function setUpCoach(db, { validateTracker, applyPackage, visionLabels, reviseRou
     const id = account.id;
     try {
       if (pathname === "/api/coach/profile" && req.method === "GET")
-        return json(res, 200, { role: role(id), suspended: suspended(id) });
+        return json(res, 200, { account: id, email: account.google_email, role: role(id), suspended: suspended(id) });
       need(!suspended(id), "Доступ до трекера призупинено.", 403);
       if (pathname === "/api/coach/contracts" && req.method === "GET") {
         const contracts = db.prepare(`SELECT id, coach_id, client_id, status, phase, started FROM coach_contracts

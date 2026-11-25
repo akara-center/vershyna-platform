@@ -20,18 +20,22 @@ async function run() {
     const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
     const coachContext = await browser.newContext();
     const errors = [];
-    async function login(context, key, destination) {
+    async function login(context, key) {
       const page = await context.newPage();
       page.on("pageerror", (error) => errors.push(error.message));
       await page.goto(base);
       await page.locator('[name="key"]').fill(key);
       await page.getByRole("button", { name: "Увійти" }).click();
-      await page.waitForURL("**/" + destination);
+      await page.waitForURL("**/tracker");
       return page;
     }
     const saved = (page) => page.waitForFunction(() =>
       document.querySelector("#workspace-status").textContent === "Збережено в акаунті");
-    const coach = await login(coachContext, coachKey, "coach");
+    const coach = await login(coachContext, coachKey);
+    await coach.getByText("Ви увійшли як test-coach").waitFor();
+    await coach.getByRole("link", { name: "Кабінет коуча", exact: true }).click();
+    await coach.getByRole("heading", { name: "Кабінет коуча", exact: true }).waitFor();
+    await coach.getByText("Ви увійшли як test-coach").waitFor();
     await coach.getByRole("textbox", { name: "Акаунт клієнта" }).fill("test-client");
     await coach.getByRole("button", { name: "Створити контракт" }).click();
     await coach.getByRole("heading", { name: "Активна співпраця" }).waitFor();
@@ -39,8 +43,8 @@ async function run() {
     await coach.getByRole("button", { name: "Передати трекер клієнтові" }).click();
     await coach.getByText("Стрічка змін", { exact: false }).waitFor();
 
-    const first = await login(desktop, clientKey, "tracker");
-    const second = await login(mobile, clientKey, "tracker");
+    const first = await login(desktop, clientKey);
+    const second = await login(mobile, clientKey);
 
     await first.locator("#newMission").click();
     await first.locator("#missionName").fill("Тестовий проєкт");
@@ -89,8 +93,29 @@ async function run() {
     await coach.getByRole("heading", { name: "Активна співпраця" }).waitFor();
     await coach.getByText("Доступні блоки").click();
     assert.equal(await coach.getByRole("heading", { name: "Тестовий проєкт", exact: true }).count(), 0);
+    await second.getByText("Ви увійшли як test-client").waitFor();
+    await second.getByRole("button", { name: "Вийти", exact: true }).click();
+    await second.getByText("Ви не увійшли до Вершини.").waitFor();
+    await second.goto(base);
+    await second.waitForURL("**/account");
+
+    await coach.getByRole("link", { name: "Мій трекер", exact: true }).click();
+    await coach.waitForURL("**/tracker");
+    await coach.locator("#newMission").click();
+    await coach.locator("#missionName").fill("Особиста ціль коуча");
+    await coach.locator("#missionGoal").fill("Особистий результат");
+    await coach.locator("#missionForm button.primary").click();
+    await saved(coach);
+    assert.equal(await first.getByText("Особиста ціль коуча", { exact: true }).count(), 0);
+    await coach.getByRole("button", { name: "Вийти", exact: true }).click();
+    await coach.getByText("Ви не увійшли до Вершини.").waitFor();
+    await coach.locator('[name="key"]').fill(clientKey);
+    await coach.getByRole("button", { name: "Увійти" }).click();
+    await coach.waitForURL("**/tracker");
+    await coach.getByText("Ви увійшли як test-client").waitFor();
+    assert.equal(await coach.getByText("Особиста ціль коуча", { exact: true }).count(), 0);
     assert.deepEqual(errors, []);
-    console.log("Browser checks passed for synchronization, offline conflict recovery, avatar, and coach visibility.");
+    console.log("Browser checks passed for synchronization, offline conflict recovery, avatar, coach visibility, account switching, and logout.");
   } finally {
     await browser?.close();
     await new Promise((resolve) => server.close(resolve));
