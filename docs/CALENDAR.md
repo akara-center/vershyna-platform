@@ -13,7 +13,7 @@
 ## Налаштування на хостингу
 
 1. У Google Cloud увімкни Calendar API, налаштуй екран згоди й створи OAuth-клієнт типу Web application.
-2. Додай адресу перенаправлення `https://твій-домен/api/calendar/callback`. Вона має збігатися з `VERSHYNA_ORIGIN` та шляхом callback.
+2. Додай адресу перенаправлення `https://vershyna-platform-production.up.railway.app/api/calendar/callback`. Для іншого домену заміни лише домен, шлях `/api/calendar/callback` збережи.
 3. У секрети хостингу внеси `VERSHYNA_GOOGLE_CLIENT_ID`, `VERSHYNA_GOOGLE_CLIENT_SECRET` і `VERSHYNA_GOOGLE_TOKEN_KEY`. Ключ шифрування можна створити командою `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`.
 4. Для тестового OAuth додай тестовий Google-акаунт, увійди у Вершину, прив’яжи тестову задачу. Перевір зміну назви й часу, конфлікт, скасування події та від’єднання. Перед відкритим запуском перевір, які вимоги Google застосовує до публікації та перевірки цього OAuth-клієнта.
 

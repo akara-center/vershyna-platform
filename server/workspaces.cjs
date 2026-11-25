@@ -145,7 +145,7 @@ function identifyGoogleAccount(db, coach, subject, isCoach, registerClients) {
   });
 }
 
-function workspaceApi(db, origin, calendar, coach = configureCoach(db)) {
+function workspaceApi(db, origin, calendar, coach = configureCoach(db), driveBackup) {
   return async (req, res, pathname) => {
     const method = req.method;
     try {
@@ -172,6 +172,8 @@ function workspaceApi(db, origin, calendar, coach = configureCoach(db)) {
       if (pathname.startsWith("/api/calendar/") && calendar) {
         return await calendar(req, res, pathname, account, { json, readJson, digest, activeAccount });
       }
+      if (pathname.startsWith("/api/drive-backup/") && driveBackup)
+        return await driveBackup(req, res, pathname, account, { json, digest, activeAccount });
       if (pathname === "/api/workspace" && method === "GET") {
         return json(res, 200, snapshot(account));
       }
