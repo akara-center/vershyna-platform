@@ -1,0 +1,10 @@
+.session-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .35rem .8rem;
+  margin-bottom: .75rem;
+}
+.session-identity { min-width: 0; overflow-wrap: anywhere; }
+.session-navigation [role="status"]:empty { display: none; }

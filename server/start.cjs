@@ -15,6 +15,24 @@ const mime = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; cha
   ".css": "text/css; charset=utf-8", ".json": "application/json", ".png": "image/png",
   ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
 
+function escapeHtml(value) {
+  return value.replace(/[&<>"']/g,
+    (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+}
+
+function accountNavigation(account, role, page) {
+  const label = escapeHtml(account.google_email ?? account.id);
+  const destination = page === "tracker"
+    ? '<a href="/coach">' + (role === "coach" ? "Кабінет коуча" : "Співпраця з коучем") + '</a>'
+    : '<a href="/tracker">Мій трекер</a>';
+  return `<nav class="session-navigation" aria-label="Акаунт Вершини" data-account="${escapeHtml(account.id)}">
+    <span class="session-identity">Ви увійшли як <strong>${label}</strong></span>
+    <div class="pilot-actions">${destination}<a href="/account">Мій акаунт</a>
+    <button type="button" data-session-logout>Вийти</button></div>
+    <span data-session-status role="status"></span>
+    </nav>`;
+}
+
 function createServer(db, origin, calendarOptions, googleOptions, backupOptions = {}) {
   const coach = configureCoach(db);
   const calendar = setupCalendar(db, origin, calendarOptions, coach);
@@ -26,24 +44,31 @@ function createServer(db, origin, calendarOptions, googleOptions, backupOptions 
     const { pathname } = url;
     if (pathname === "/auth/google" || pathname === "/auth/google/callback")
       return void google.handle(req, res, url,
-        (...args) => identifyGoogleAccount(db, coach, ...args), (id) => startSession(db, origin, req, id));
+        (...args) => identifyGoogleAccount(db, coach, ...args), (id, email) => startSession(db, origin, req, id, email));
     if (pathname === "/healthz" && req.method === "GET") return void res.writeHead(200, { "Cache-Control": "no-store" }).end("ok");
     if (pathname.startsWith("/api/")) return void api(req, res, pathname);
     if (req.method !== "GET" && req.method !== "HEAD") return void res.writeHead(405).end();
-    if (pathname === "/" || pathname === "/index.html") return void res.writeHead(302, { Location: "/tracker" }).end();
-    if (pathname === "/tracker") {
+    if (pathname === "/" || pathname === "/index.html") return void res.writeHead(302, { Location: "/tracker", "Cache-Control": "no-store" }).end();
+    if (pathname === "/tracker" || pathname === "/coach") {
       const account = activeAccount(db, req);
       if (!account || coach.suspended(account.id)) return void res.writeHead(302, { Location: "/account", "Cache-Control": "no-store" }).end();
-      if (coach.role(account.id) === "coach") return void res.writeHead(302, { Location: "/coach", "Cache-Control": "no-store" }).end();
+      const navigation = accountNavigation(account, coach.role(account.id), pathname.slice(1));
+      const headers = { "Content-Type": mime[".html"], "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
+      if (pathname === "/coach") {
+        const html = fs.readFileSync(path.join(__dirname, "coach.html"), "utf8")
+          .replace("<!-- account-navigation -->", () => navigation);
+        return void res.writeHead(200, headers).end(req.method === "GET" ? html : undefined);
+      }
       const data = JSON.stringify(snapshot(account)).replace(/</g, "\\u003c");
       const html = fs.readFileSync(path.join(dist, "index.html"), "utf8")
         .replace('<script src="./state.js?', () => `<script type="application/json" id="workspace-data">${data}</script><script src="/workspace.js"></script><script src="./state.js?`)
-        .replace('<a href="./collaboration.html">Демо кабінету коуча</a>', '<a href="/coach">Спільний трекер</a> <a href="/account">Мій акаунт</a>')
-        .replace('<nav id="pilot-nav"', '<div class="workspace-status pilot-actions"><a href="/account">Мій акаунт</a><span id="workspace-status" role="status"></span><button type="button" id="workspace-review" hidden>Звірити зміни</button></div><nav id="pilot-nav"');
-      res.writeHead(200, { "Content-Type": mime[".html"], "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" });
+        .replace('<a href="./collaboration.html">Демо кабінету коуча</a>', '<a href="/coach">Спільний трекер</a>')
+        .replace('<nav id="pilot-nav"', () => navigation + '<div class="workspace-status pilot-actions"><span id="workspace-status" role="status"></span><button type="button" id="workspace-review" hidden>Звірити зміни</button></div><nav id="pilot-nav"')
+        .replace(/<\/head\s*>/, '<link rel="stylesheet" href="/session.css"><script src="/session.js" defer></script></head>');
+      res.writeHead(200, headers);
       return void res.end(req.method === "GET" ? html : undefined);
     }
-    const accountFiles = { "/account": "account.html", "/account.js": "account.js", "/workspace.js": "workspace.js", "/coach": "coach.html", "/coach.js": "coach.js" };
+    const accountFiles = { "/account": "account.html", "/account.js": "account.js", "/workspace.js": "workspace.js", "/session.js": "session.js", "/session.css": "session.css", "/coach.js": "coach.js" };
     const accountFile = Object.hasOwn(accountFiles, pathname) && accountFiles[pathname];
     const name = pathname.slice(1);
     if (!accountFile && !/^[a-zA-Z0-9_-]+\.[a-z]+$/.test(name)) return void res.writeHead(404).end();

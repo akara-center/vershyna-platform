@@ -54,7 +54,10 @@ function openWorkspaces(dbPath) {
     CREATE TABLE IF NOT EXISTS google_login_attempts (
       digest TEXT PRIMARY KEY, verifier TEXT NOT NULL, nonce TEXT NOT NULL, expires INTEGER NOT NULL
     );`);
-  configureCoach(db);
+  configureCoach(db).transaction(() => {
+    if (!db.prepare("PRAGMA table_info(workspace_sessions)").all().some(({ name }) => name === "google_email"))
+      db.exec("ALTER TABLE workspace_sessions ADD COLUMN google_email TEXT");
+  });
   return db;
 }
 
@@ -95,7 +98,7 @@ async function readJson(req) {
 
 function activeAccount(db, req) {
   const digest = sessionDigest(req);
-  return db.prepare(`SELECT a.id, a.tracker, a.revision FROM workspace_accounts a
+  return db.prepare(`SELECT a.id, a.tracker, a.revision, s.google_email FROM workspace_accounts a
     JOIN workspace_sessions s ON a.id = s.account_id WHERE s.digest = ? AND s.expires > ?`)
     .get(digest, Math.floor(Date.now() / 1000));
 }
@@ -113,11 +116,12 @@ function sessionCookie(origin, value, maxAge) {
   return `vershyna_session=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${origin.startsWith("https:") ? "; Secure" : ""}`;
 }
 
-function startSession(db, origin, req, accountId) {
+function startSession(db, origin, req, accountId, googleEmail = null) {
   const session = token();
   const now = Math.floor(Date.now() / 1000);
   db.prepare("DELETE FROM workspace_sessions WHERE expires <= ? OR digest = ?").run(now, sessionDigest(req));
-  db.prepare("INSERT INTO workspace_sessions VALUES (?, ?, ?)").run(hash(session), accountId, now + sessionLifetime);
+  db.prepare("INSERT INTO workspace_sessions (digest, account_id, expires, google_email) VALUES (?, ?, ?, ?)")
+    .run(hash(session), accountId, now + sessionLifetime, googleEmail);
   return sessionCookie(origin, session, sessionLifetime);
 }
 
@@ -159,13 +163,14 @@ function workspaceApi(db, origin, calendar, coach = configureCoach(db), driveBac
         if (!account) return json(res, 401, { error: "Ключ доступу недійсний." });
         return json(res, 200, { account: account.id }, { "Set-Cookie": startSession(db, origin, req, account.id) });
       }
+      const account = activeAccount(db, req);
+      if (req.headers["x-vershyna-account"] && account && req.headers["x-vershyna-account"] !== account.id)
+        return json(res, 401, { error: "Акаунт змінився." });
       if (pathname === "/api/session" && method === "DELETE") {
         db.prepare("DELETE FROM workspace_sessions WHERE digest = ?").run(digest);
         return json(res, 200, {}, { "Set-Cookie": sessionCookie(origin, "", 0) });
       }
-      const account = activeAccount(db, req);
-      if (!account || (req.headers["x-vershyna-account"] && req.headers["x-vershyna-account"] !== account.id))
-        return json(res, 401, { error: "Увійди до потрібного акаунта Вершини." });
+      if (!account) return json(res, 401, { error: "Увійди до потрібного акаунта Вершини." });
       if (pathname.startsWith("/api/coach/"))
         return await coach.api(req, res, pathname, account, { json, readJson, digest, activeAccount });
       if (coach.suspended(account.id)) return json(res, 403, { error: "Доступ до трекера призупинено." });

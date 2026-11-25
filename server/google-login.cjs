@@ -97,7 +97,7 @@ function setupGoogleLogin(db, origin, options = {}) {
           redirect(res, "/account?login=unavailable", [cookie("", 0)]);
           return;
         }
-        redirect(res, account.role === "coach" ? "/coach" : "/tracker", [cookie("", 0), signIn(account.id)]);
+        redirect(res, "/tracker", [cookie("", 0), signIn(account.id, email)]);
       } catch {
         redirect(res, "/account?login=failed", [cookie("", 0)]);
       }
