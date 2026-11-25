@@ -63,6 +63,7 @@ test("Google sign-in binds a verified coach identity and rejects replay or an un
     assert.match(html, /Ви увійшли як <strong>owner@gmail.com<\/strong>/);
     assert.match(html, new RegExp('href="' + link + '"'));
     assert.match(html, /data-session-logout/);
+    assert.match(html, /<script src="\/session\.js" defer>/);
     assert.equal((await call(path)).headers.get("location"), "/account");
   }
   const logout = (account) => fetch(base + "/api/session", {

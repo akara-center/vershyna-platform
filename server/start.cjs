@@ -64,7 +64,7 @@ function createServer(db, origin, calendarOptions, googleOptions, backupOptions 
         .replace('<script src="./state.js?', () => `<script type="application/json" id="workspace-data">${data}</script><script src="/workspace.js"></script><script src="./state.js?`)
         .replace('<a href="./collaboration.html">Демо кабінету коуча</a>', '<a href="/coach">Спільний трекер</a>')
         .replace('<nav id="pilot-nav"', () => navigation + '<div class="workspace-status pilot-actions"><span id="workspace-status" role="status"></span><button type="button" id="workspace-review" hidden>Звірити зміни</button></div><nav id="pilot-nav"')
-        .replace("</head>", '<link rel="stylesheet" href="/session.css"><script src="/session.js" defer></script></head>');
+        .replace(/<\/head\s*>/, '<link rel="stylesheet" href="/session.css"><script src="/session.js" defer></script></head>');
       res.writeHead(200, headers);
       return void res.end(req.method === "GET" ? html : undefined);
     }
