@@ -18,12 +18,7 @@ async function copyToBucket(url, date, s3, dbPath) {
   if (head.ok && head.headers.get("x-amz-meta-backup-date") === date) return false;
   if (!head.ok && head.status !== 404) throw Error("перевірка сховища: HTTP " + head.status);
 
-  const folder = await mkdtemp(path.join(tmpdir(), "vershyna-backup-"));
-  try {
-    const file = path.join(folder, "vershyna.sqlite");
-    await run(process.execPath, [path.join(__dirname, "start.cjs"), "backup", file], {
-      timeout: 120000, env: { ...process.env, VERSHYNA_DB: dbPath },
-    });
+  return withSnapshot(dbPath, async (file) => {
     const hash = createHash("sha256");
     for await (const chunk of createReadStream(file)) hash.update(chunk);
     const saved = await s3.fetch(url, {
@@ -41,6 +36,17 @@ async function copyToBucket(url, date, s3, dbPath) {
     }
     await saved.body?.cancel();
     return true;
+  });
+}
+
+async function withSnapshot(dbPath, use) {
+  const folder = await mkdtemp(path.join(tmpdir(), "vershyna-backup-"));
+  try {
+    const file = path.join(folder, "vershyna.sqlite");
+    await run(process.execPath, [path.join(__dirname, "start.cjs"), "backup", file], {
+      timeout: 120000, env: { ...process.env, VERSHYNA_DB: dbPath },
+    });
+    return await use(file);
   } finally {
     await rm(folder, { recursive: true, force: true });
   }
@@ -67,6 +73,15 @@ function scheduleBackups(server, dbPath, env = process.env) {
     return;
   }
 
+  scheduleDaily(server, async (date, slot) => {
+    const url = new URL("daily/day-" + slot + ".sqlite", base);
+    if (await copyToBucket(url, date, s3, dbPath))
+      console.info("Резервну копію Вершини збережено: " + date + " · daily/day-" + slot + ".sqlite");
+    return true;
+  });
+}
+
+function scheduleDaily(server, task) {
   let busy = false;
   let completed = -1;
   let retryAt = 0;
@@ -78,10 +93,7 @@ function scheduleBackups(server, dbPath, env = process.env) {
     try {
       const date = new Date(now).toISOString().slice(0, 10);
       const slot = String((day % retentionDays) + 1).padStart(2, "0");
-      const url = new URL("daily/day-" + slot + ".sqlite", base);
-      const uploaded = await copyToBucket(url, date, s3, dbPath);
-      if (uploaded) console.info("Резервну копію Вершини збережено: " + date + " · daily/day-" + slot + ".sqlite");
-      completed = day;
+      if (await task(date, slot)) completed = day;
     } catch (error) {
       retryAt = Date.now() + checkInterval;
       const status = /HTTP (\d{3})$/.exec(error?.message || "")?.[1];
@@ -95,6 +107,10 @@ function scheduleBackups(server, dbPath, env = process.env) {
   const timer = setInterval(check, checkInterval);
   timer.unref();
   server.once("close", () => clearInterval(timer));
+  return () => {
+    completed = -1;
+    void check();
+  };
 }
 
-module.exports = { copyToBucket, scheduleBackups };
+module.exports = { copyToBucket, scheduleBackups, scheduleDaily, withSnapshot };

@@ -5,7 +5,8 @@ const path = require("node:path");
 const http = require("node:http");
 const { openWorkspaces, provision, workspaceApi, activeAccount, snapshot, configureCoach, startSession, identifyGoogleAccount } = require("./workspaces.cjs");
 
-const { scheduleBackups } = require("./scheduled-backup.cjs");
+const { setupDriveBackup } = require("./drive-backup.cjs");
+const { scheduleBackups, scheduleDaily, withSnapshot } = require("./scheduled-backup.cjs");
 const { setupGoogleLogin } = require("./google-login.cjs");
 const { setupCalendar } = require("./calendar-account.cjs");
 
@@ -14,11 +15,12 @@ const mime = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; cha
   ".css": "text/css; charset=utf-8", ".json": "application/json", ".png": "image/png",
   ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
 
-function createServer(db, origin, calendarOptions, googleOptions) {
+function createServer(db, origin, calendarOptions, googleOptions, backupOptions = {}) {
   const coach = configureCoach(db);
   const calendar = setupCalendar(db, origin, calendarOptions, coach);
   const google = setupGoogleLogin(db, origin, googleOptions);
-  const api = workspaceApi(db, origin, calendar.api, coach);
+  const drive = setupDriveBackup(db, origin, coach, backupOptions);
+  const api = workspaceApi(db, origin, calendar.api, coach, drive.api);
   const server = http.createServer({ requestTimeout: 20000 }, (req, res) => {
     const url = new URL(req.url, "http://localhost");
     const { pathname } = url;
@@ -68,6 +70,10 @@ function createServer(db, origin, calendarOptions, googleOptions) {
     timer.unref();
     server.once("close", () => clearInterval(timer));
   }
+  if (drive.enabled && backupOptions.dbPath) {
+    drive.onConnect(scheduleDaily(server, (date, slot) =>
+      drive.check(date, slot, (save) => withSnapshot(backupOptions.dbPath, save))));
+  }
   return server;
 }
 
@@ -105,7 +111,10 @@ if (require.main === module) {
       coachEmail: process.env.VERSHYNA_LOGIN_COACH_EMAIL,
       registerClients: process.env.VERSHYNA_LOGIN_GOOGLE_REGISTER_CLIENTS === "1",
     };
-    const server = createServer(db, origin, calendarOptions, googleOptions);
+    const server = createServer(db, origin, calendarOptions, googleOptions, {
+      clientId: googleOptions.clientId, clientSecret: googleOptions.clientSecret,
+      encryptionKey: process.env.VERSHYNA_DRIVE_BACKUP_TOKEN_KEY, dbPath,
+    });
     scheduleBackups(server, dbPath);
     server.listen(port, process.env.VERSHYNA_HOST || "127.0.0.1", () => console.log(`Вершина: ${origin}/account`));
   }

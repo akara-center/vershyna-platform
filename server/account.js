@@ -26,7 +26,10 @@ function render() {
   $("blocked-logout").hidden = !profile?.suspended;
   $("coach-link").textContent = profile?.role === "coach" ? "Кабінет коуча" : "Співпраця з коучем";
   $("workspace").hidden = !workspace;
-  if (!workspace) $("calendar-account").hidden = true;
+  if (!workspace) {
+    $("calendar-account").hidden = true;
+    $("drive-backup").hidden = true;
+  }
   $("account-info").textContent = workspace
     ? `Акаунт: ${workspace.account}. ${workspace.revision ? "Версія копії " + workspace.revision + "." : "Копій поки немає."}`
     : "";
@@ -46,6 +49,7 @@ async function refresh() {
   render();
   $("calendar-account").hidden = !workspace;
   if (workspace) {
+    await refreshDriveBackup();
     const calendar = await api("/api/calendar/status");
     $("calendar-account").hidden = !calendar.enabled;
     $("calendar-connect").hidden = calendar.connected;
@@ -54,6 +58,26 @@ async function refresh() {
     if (["cancelled", "error"].includes(new URLSearchParams(location.search).get("google")))
       $("calendar-info").textContent = "Під’єднання не завершилося. Спробуй ще раз.";
   }
+}
+
+async function refreshDriveBackup() {
+  const section = $("drive-backup");
+  section.hidden = true;
+  if (profile?.role !== "coach") return;
+  const drive = await api("/api/drive-backup/status");
+  if (!drive.enabled) return;
+  section.hidden = false;
+  const folder = $("drive-backup-folder");
+  folder.hidden = !drive.folder;
+  if (drive.folder) folder.href = drive.folder;
+  $("drive-backup-connect").hidden = drive.connected && drive.error !== "reconnect";
+  $("drive-backup-disconnect").hidden = !drive.connected;
+  let message = "Під’єднай Google-акаунт, на Диск якого зберігати копії.";
+  if (drive.connected) message = drive.lastDate ? "Остання копія: " + drive.lastDate + "." : "Диск під’єднано. Перша копія ще готується.";
+  if (drive.error === "retry") message += " Остання спроба запису не вдалася. Сервер повторить її.";
+  if (drive.error === "reconnect") message += " Доступ Google завершився. Під’єднай Диск знову.";
+  if (new URLSearchParams(location.search).get("driveBackup") === "error") message += " Під’єднання не завершилося.";
+  $("drive-backup-info").textContent = message;
 }
 
 async function act(task) {
@@ -125,4 +149,13 @@ $("calendar-disconnect").onclick = () => void act(async () => {
   if (!confirm("Від’єднати календар? Події залишаться в Google Calendar.")) return;
   await api("/api/calendar/connect", "DELETE");
   await refresh();
+});
+
+$("drive-backup-connect").onclick = () => void act(async () => {
+  location.assign((await api("/api/drive-backup/connect", "POST")).url);
+});
+$("drive-backup-disconnect").onclick = () => void act(async () => {
+  if (!confirm("Від’єднати Google Диск? Створені файли залишаться на Диску.")) return;
+  await api("/api/drive-backup/connect", "DELETE");
+  await refreshDriveBackup();
 });
