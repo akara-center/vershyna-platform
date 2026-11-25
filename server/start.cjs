@@ -5,6 +5,7 @@ const path = require("node:path");
 const http = require("node:http");
 const { openWorkspaces, provision, workspaceApi, activeAccount, snapshot, configureCoach, startSession, identifyGoogleAccount } = require("./workspaces.cjs");
 
+const { scheduleBackups } = require("./scheduled-backup.cjs");
 const { setupGoogleLogin } = require("./google-login.cjs");
 const { setupCalendar } = require("./calendar-account.cjs");
 
@@ -104,7 +105,9 @@ if (require.main === module) {
       coachEmail: process.env.VERSHYNA_LOGIN_COACH_EMAIL,
       registerClients: process.env.VERSHYNA_LOGIN_GOOGLE_REGISTER_CLIENTS === "1",
     };
-    createServer(db, origin, calendarOptions, googleOptions).listen(port, process.env.VERSHYNA_HOST || "127.0.0.1", () => console.log(`Вершина: ${origin}/account`));
+    const server = createServer(db, origin, calendarOptions, googleOptions);
+    scheduleBackups(server, dbPath);
+    server.listen(port, process.env.VERSHYNA_HOST || "127.0.0.1", () => console.log(`Вершина: ${origin}/account`));
   }
 }
 
